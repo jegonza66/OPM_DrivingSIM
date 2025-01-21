@@ -735,7 +735,7 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
                 cmap = 'bwr'
             else:
                 if not edge_vmin:
-                    edge_vmin = sorted(np.sort(adjacency_matrix, axis=None))[-int((1 - connections_num) * len(np.sort(adjacency_matrix, axis=None))**2)]  # set colorbar minimum as twice smaller than plot minimum
+                    edge_vmin = sorted(np.sort(adjacency_matrix, axis=None))[-int((1 - connections_num) * len(np.sort(adjacency_matrix, axis=None))*2)]  # set colorbar minimum as twice smaller than plot minimum
                 cmap = 'Reds'
 
         # Plot connectome
@@ -781,7 +781,8 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=Fa
     # Plot
     fig = plt.figure(figsize=(8, 5))
     norm = colors.CenteredNorm(vcenter=0)
-    im = plt.imshow(sorted_matrix, cmap='bwr', norm=norm)
+    # im = plt.imshow(sorted_matrix, cmap='bwr', norm=norm)
+    im = plt.imshow(sorted_matrix, vmin=vmin, vmax=vmax)
     fig.colorbar(im)
 
     ax = plt.gca()
