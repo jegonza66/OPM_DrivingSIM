@@ -7,7 +7,7 @@ main_path = scripts_path.replace('Scripts', '')
 data_path_exists = os.path.exists(main_path + 'DATA/')
 if not data_path_exists:
     raise AssertionError(f'DATA/ folder not found in main path: {main_path}\n'
-                         f'Please refer to https://github.com/jegonza66/MEGEYEDYN and copy the directory structure from Readme.md')
+                         f'Please refer to https://github.com/jegonza66/OPM_DrivingSIM and copy the directory structure from Readme.md')
 
 opm_path = main_path + 'DATA/OPM/'
 et_path = main_path + 'DATA/ET/'

@@ -65,13 +65,14 @@ class exp_info:
         # Select subject
         self.subjects_ids = ['11766'
                              ]
-        # Select subject
-        self.subjects_ids = ['11766'
-                             ]
 
         # Subjects bad channels
         self.bad_channels = {'11766': ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11', 'A1','A3','A5','A7','A8','A10','A12','A14','A16']
                              }
+
+        # Taken from Driving Experiment info v0_1
+        self.exp_times = {'11766': {'cf_start': 49, 'cf_end': 163, 'da_start': 163, 'da_end': 526},
+                          }
 
         # Distance to the screen during the experiment
         # It's actually camera Check with matias if this is what we want (top/bottop of the screen)
@@ -86,10 +87,7 @@ class exp_info:
         self.group = {'11766': 'counterbalanced'
                       }
 
-        # Taken from Driving Experiment info v0_1
-        self.exp_times = {'11766': {'cf_start':49, 'cf_end':163, 'da_start':163, 'da_end':526},
-                      }
-
+        # Duration of the DA in seconds
         self.DA_duration = 4.5
 
         # Tracked eye
