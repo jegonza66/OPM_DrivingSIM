@@ -871,7 +871,7 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
         clim = {'kind': 'values', 'lims': ((abs(stc.data[:, initial_time_idx]).max() - abs(stc.data[:, initial_time_idx]).min()) / 1.5,
                                            (abs(stc.data[:, initial_time_idx]).max() - abs(stc.data[:, initial_time_idx]).min()) / 1.25,
                                            (abs(stc.data[:, initial_time_idx]).max() - abs(stc.data[:, initial_time_idx]).min()) * 1.1)}
-        print(clim)
+
         # Replace positive cbar for positive / negative
         if positive_cbar == False or (stc.data[:, initial_time_idx].mean() - stc.data[:, initial_time_idx].std() <= 0 and positive_cbar != True):
             clim['pos_lims'] = clim.pop('lims')
