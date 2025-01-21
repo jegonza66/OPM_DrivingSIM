@@ -12,6 +12,7 @@ from nilearn import plotting
 from itertools import compress
 import pandas as pd
 import matplotlib.gridspec as gridspec
+import matplotlib.colors as colors
 
 
 save_path = paths.save_path
@@ -773,11 +774,14 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=Fa
 
     sorted_labels = [label_names[i] for i in sort][::-1]  # Get labels in sorted order
 
+    # Get min and max from data
     vmin = np.sort(sorted_matrix.ravel())[len(label_ypos)]
     vmax = np.sort(sorted_matrix.ravel())[-1]
 
+    # Plot
     fig = plt.figure(figsize=(8, 5))
-    im = plt.imshow(sorted_matrix, vmin=vmin, vmax=vmax)
+    norm = colors.CenteredNorm(vcenter=0)
+    im = plt.imshow(sorted_matrix, cmap='bwr', norm=norm)
     fig.colorbar(im)
 
     ax = plt.gca()
