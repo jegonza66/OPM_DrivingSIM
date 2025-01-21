@@ -198,27 +198,3 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
         epochs.save(epochs_save_path + epochs_data_fname, overwrite=True)
 
     return epochs, events
-
-
-def get_labels(parcelation, subjects_dir, surf_vol='surface'):
-    # Get parcelation labels
-    if surf_vol == 'surface':  # or surf_vol == 'mixed':
-        # Get labels for FreeSurfer 'aparc' cortical parcellation with 34 labels/hemi
-        fsaverage_labels = mne.read_labels_from_annot(subject='fsaverage', parc=parcelation, subjects_dir=subjects_dir)
-        # Remove 'unknown' label for fsaverage aparc labels
-        if parcelation == 'aparc':
-            print("Dropping extra 'unkown' label from lh.")
-            drop_idxs = [i for i, label in enumerate(fsaverage_labels) if 'unknown' in label.name]
-            for drop_idx in drop_idxs:
-                fsaverage_labels.pop(drop_idx)
-
-    if surf_vol == 'volume':
-        labels_fname = subjects_dir + f'/fsaverage/mri/aparc+aseg.mgz'
-        fsaverage_labels = mne.get_volume_labels_from_aseg(labels_fname, return_colors=True)
-        # Drop extra labels in fsaverage
-        drop_idxs = [i for i, label in enumerate(fsaverage_labels[0]) if (label == 'ctx-lh-corpuscallosum' or label == 'ctx-rh-corpuscallosum')]
-        for drop_idx in drop_idxs:
-            fsaverage_labels[0].pop(drop_idx)
-            fsaverage_labels[1].pop(drop_idx)
-
-    return fsaverage_labels
