@@ -142,13 +142,11 @@ def filtered_data(subject_id, band_id, task, method='iir', use_ica_data=True, pr
 
 def ica_data(subject_id, task, preload=True):
 
-    path = paths.ica_path + f'{subject_id}/'
-
     # Try to load ica data
     try:
         print(f'Loading ica data for subject {subject_id}')
         # Load data
-        ica_data = mne.io.read_raw_fif(path + f'{task}_3_raw_ica_hfc_meg.fif', preload=preload)
+        ica_data = mne.io.read_raw_fif(paths.ica_path + f'{task}_{subject_id}_raw_ica_hfc_meg.fif', preload=preload)
 
     except:
         raise ValueError(f'No previous ica data found for subject {subject_id}')
