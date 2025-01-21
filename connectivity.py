@@ -1,7 +1,4 @@
 import os
-
-from tifffile import EXTRASAMPLE
-
 import functions_analysis
 import functions_general
 import mne
@@ -18,6 +15,9 @@ import mne_rsa
 from scipy.stats import ttest_ind, wilcoxon
 from statsmodels.stats.multitest import fdrcorrection
 
+# Removing NANs from meg_data
+# meg_data.crop(tmin=0, tmax=meg_data.times[np.where(~np.isnan(meg_data._data[0]))[-1]][0])
+# meg_data.save(paths.ica_path + f'{subject_id}/' + f'{task}_3_raw_ica_hfc_meg.fif', overwrite=True)
 
 # Load experiment info
 exp_info = setup.exp_info()
@@ -28,30 +28,22 @@ display_figs = True
 plot_individuals = True
 save_data = True
 
-# Turn on/off show figures
-if display_figs:
-    plt.ion()
-else:
-    plt.ioff()
-
-#----- Parameters -----#
+# Trial parameters
 task = 'DA'
-band_id = 'Beta'  # Frequency band
-epoch_ids = ['DA']  # Epoch identifier
+band_id = 'HGamma'  # Frequency band
+epoch_ids = ['DA', 'CF']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
 reject = False  # Peak to peak amplitude epoch rejection
 data_type = 'ICA'  # 'RAW'
 
 # Source estimation parameters
-force_fsaverage = False
-# Model
-model_name = 'lcmv'
-ico = 4
-# Souce model ('volume'/'surface'/'mixed')
-surf_vol = 'surface'
+force_fsaverage = False  # Force all participants to use fsaverage regardless of their MRI data
+model_name = 'lcmv'  # lcmv / dics
+ico = 4  # Density of icasahedrons in source model (5, 6)
+surf_vol = 'surface'  # 'volume'/'surface'/'mixed'
 pick_ori = None  # 'vector' For dipoles, 'max_power' for
-# Parcelation (aparc / aparc.a2009s)
-parcelation = 'aparc'
+parcelation = 'aparc'  # aparc / aparc.a2009s
 
+# Statistics parameters
 correct_multiple_comparisons = True
 
 # Connectivity parameters
@@ -66,7 +58,7 @@ if envelope_connectivity:
     desired_sfreq = 10
 else:
     connectivity_method = 'pli'
-standarize_con = True
+standarize_con = True  # Standarize connectivity matrices within subjects
 
 
 #----- Setup -----#
@@ -90,11 +82,17 @@ else:
     main_path = 'Connectivity'
     final_path = f'{labels_mode}_{connectivity_method}'
 
+# Turn on/off show figures
+if display_figs:
+    plt.ion()
+else:
+    plt.ioff()
+
+
+#--------- Run ---------#
 # Save data of each id
 subj_matrices = {}
 ga_matrices = {}
-
-#--------- Run ---------#
 for epoch_id in epoch_ids:
 
     # Frequencies from band
@@ -184,6 +182,7 @@ for epoch_id in epoch_ids:
         # Data filenames
         epochs_data_fname = f'Subject_{subject_id}_epo.fif'
         labels_ts_data_fname = f'Subject_{subject_id}.pkl'
+        fname_lcmv = f'/{subject_code}_band{band_id}_{surf_vol}_ico{ico}_{pick_ori}-lcmv.h5'
 
         # Save figures path
         fig_path_subj = fig_path + f'{subject_id}/'
@@ -193,7 +192,7 @@ for epoch_id in epoch_ids:
         # Source data path
         sources_path_subject = paths.sources_path + subject.subject_id
         # Load forward model
-        fname_fwd = sources_path_subject + f'/{subject_code}_surface_ico{ico}-fwd.fif'
+        fname_fwd = sources_path_subject + f'/{subject_code}_{surf_vol}_ico{ico}-fwd.fif'
         fwd = mne.read_forward_solution(fname_fwd)
         # Get sources from forward model
         src = fwd['src']
@@ -218,18 +217,12 @@ for epoch_id in epoch_ids:
                     meg_data = load.meg(subject_id=subject_id, task=task, data_type=data_type, band_id=band_id)
                 else:
                     meg_data = load.meg(subject_id=subject_id, task=task, data_type=data_type)
-                # Removing NANs from meg_data
-                meg_data.crop(tmin=0, tmax=meg_data.times[np.where(~np.isnan(meg_data._data[0]))[-1]][0])
-                # meg_data.save(paths.ica_path + f'{subject_id}/' + f'{task}_3_raw_ica_hfc_meg.fif', overwrite=True)
             else:
                 # Load MEG data
                 if envelope_connectivity:
                     meg_data = load.meg(subject_id=subject_id, task=task, data_type=data_type, band_id=band_id)
                 else:
                     meg_data = load.meg(subject_id=subject_id, task=task, data_type=data_type)
-                # Removing NANs from meg_data
-                meg_data.crop(tmin=0, tmax=meg_data.times[np.where(~np.isnan(meg_data._data[0]))[-1]][0])
-                # meg_data.save(paths.ica_path + f'{subject_id}/' + f'{task}_3_raw_ica_hfc_meg.fif', overwrite=True)
 
                 # Load epochs data
                 if os.path.isfile(epochs_save_path + epochs_data_fname):
@@ -242,27 +235,17 @@ for epoch_id in epoch_ids:
                                                                    epochs_save_path=epochs_save_path,
                                                                    epochs_data_fname=epochs_data_fname, reject=reject)
 
-                # # Load epochs data
-                # if os.path.isfile(baseline_save_path + epochs_data_fname):
-                #     baseline_epochs = mne.read_epochs(baseline_save_path + epochs_data_fname)
-                # else:
-                #     # Epoch data
-                #     baseline_epochs, events = functions_analysis.epoch_data(subject=subject, epoch_id='baseline',
-                #                                                    meg_data=meg_data, tmin=baseline_tmin, tmax=baseline_tmax,
-                #                                                    baseline=baseline, save_data=save_data,
-                #                                                    epochs_save_path=baseline_save_path,
-                #                                                    epochs_data_fname=epochs_data_fname,
-                #                                                    reject=reject)
-                #
-                # # Pick meg channels for source modeling
-                # baseline_epochs = baseline_epochs.pick('meg')
                 data_epochs.pick('meg')
 
                 # --------- Source estimation ---------#
                 # Define filter
-                # noise_cov = mne.compute_covariance(baseline_epochs, method='auto')
-                data_cov = mne.compute_covariance(data_epochs, method='auto')
-                filters = beamformer.make_lcmv(info=meg_data.info, forward=fwd, data_cov=data_cov, reg=0.05, pick_ori=pick_ori)
+                if os.path.isfile(sources_path_subject + fname_lcmv):
+                    filters = mne.beamformer.read_beamformer(sources_path_subject + fname_lcmv)
+                else:
+                    meg_data.pick('meg')
+                    data_cov = mne.compute_raw_covariance(meg_data)
+                    filters = beamformer.make_lcmv(info=meg_data.info, forward=fwd, data_cov=data_cov, reg=0.05, pick_ori=pick_ori)
+                    filters.save(fname=sources_path_subject + fname_lcmv, overwrite=True)
 
                 # Apply filter and get source estimates
                 stc_epochs = beamformer.apply_lcmv_epochs(epochs=data_epochs, filters=filters, return_generator=True)
@@ -421,19 +404,19 @@ if len(epoch_ids) > 1:
             max_value = sorted(set(np.sort(t_values, axis=None)))[-1]
 
             # Plot matrix
-            plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=t_values, subject_code='fsaverage',
+            plot_general.plot_con_matrix(subject='GA', labels=fsaverage_labels, adjacency_matrix=t_values, subject_code='fsaverage',
                                          save_fig=save_fig, fig_path=fig_path_diff, fname='GA_matrix_t')
 
             # Plot circle
-            plot_general.connectivity_circle(subject='GA', labels=labels, surf_vol=surf_vol, con=t_values, connectivity_method=connectivity_method, vmin=min_value,
+            plot_general.connectivity_circle(subject='GA', labels=fsaverage_labels, surf_vol=surf_vol, con=t_values, connectivity_method=connectivity_method, vmin=min_value,
                                              vmax=max_value, subject_code='fsaverage', display_figs=display_figs, save_fig=save_fig, fig_path=fig_path_diff, fname='GA_circle_t')
 
             # Plot p-values connectome
-            plot_general.connectome(subject='GA', labels=labels, adjacency_matrix=t_values, subject_code='fsaverage', save_fig=save_fig, fig_path=fig_path_diff,
+            plot_general.connectome(subject='GA', labels=fsaverage_labels, adjacency_matrix=t_values, subject_code='fsaverage', save_fig=save_fig, fig_path=fig_path_diff,
                                     fname=f'GA_t_con', cmap='Reds', edge_vmin=min_value, edge_vmax=max_value, connections_num=(log_p_values > 0).sum())
 
             # Plot connectivity strength (connections from each region to other regions)
-            plot_general.connectivity_strength(subject='GA', subject_code='fsaverage', con=t_values, src=src, labels=labels, surf_vol=surf_vol,
+            plot_general.connectivity_strength(subject='GA', subject_code='fsaverage', con=t_values, src=src_default, labels=fsaverage_labels, surf_vol=surf_vol,
                                                subjects_dir=subjects_dir, save_fig=save_fig, fig_path=fig_path_diff, fname=f'GA_strength_t')
 
         #----- Difference -----#
@@ -452,17 +435,17 @@ if len(epoch_ids) > 1:
         np.fill_diagonal(con_diff_ga, 0)
 
         # Plot circle
-        plot_general.connectivity_circle(subject='GA', labels=labels, surf_vol=surf_vol, con=con_diff_ga, connectivity_method=connectivity_method, subject_code='fsaverage',
+        plot_general.connectivity_circle(subject='GA', labels=fsaverage_labels, surf_vol=surf_vol, con=con_diff_ga, connectivity_method=connectivity_method, subject_code='fsaverage',
                                          display_figs=display_figs, save_fig=save_fig, fig_path=fig_path_diff, fname='GA_circle_dif')
 
         # Plot connectome
-        plot_general.connectome(subject='GA', labels=labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage',
+        plot_general.connectome(subject='GA', labels=fsaverage_labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage',
                                 save_fig=save_fig, fig_path=fig_path_diff, fname='GA_connectome_dif')
 
         # Plot matrix
-        plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage',
+        plot_general.plot_con_matrix(subject='GA', labels=fsaverage_labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage',
                                      save_fig=save_fig, fig_path=fig_path_diff, fname='GA_matrix_dif')
 
         # Plot connectivity strength (connections from each region to other regions)
-        plot_general.connectivity_strength(subject='GA', subject_code='fsaverage', con=con_diff_ga, src=src, labels=labels, surf_vol=surf_vol,
+        plot_general.connectivity_strength(subject='GA', subject_code='fsaverage', con=con_diff_ga, src=src_default, labels=fsaverage_labels, surf_vol=surf_vol,
                                            subjects_dir=subjects_dir, save_fig=save_fig, fig_path=fig_path_diff, fname='GA_strength_dif')
