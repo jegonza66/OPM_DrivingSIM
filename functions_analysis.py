@@ -13,6 +13,8 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
 
     Parameters
     ----------
+    subject : instance of subect class defined in setup.py
+        The object containing all subject information and parameters.
     meg_data : instance of mne.io.Raw
         The raw MEG data.
     epoch_id : str
@@ -134,6 +136,8 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
 
     Parameters
     ----------
+    subject : instance of subect class defined in setup.py
+        The object containing all subject information and parameters.
     epoch_id : str
      The identifier for the epoch, which can include multiple sub-ids separated by '+'.
     meg_data : instance of mne.io.Raw
