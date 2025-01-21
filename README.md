@@ -16,10 +16,15 @@ To run the scripts from this project please set the directory as follows:
 │   │   ├───11766    
 │   │   └───...
 │   │              
-│   └───Digitisation
+│   ├───Digitisation
+│   │   ├───11766    
+│   │   └───...
+│   │
+│   └───MRI
 │       ├───11766    
-│       └───...
-│                              
+│       ├───freesurfer   
+│       └───...  
+│                  
 └───Scripts
     ├───connectivity.py
     ├───paths.py
