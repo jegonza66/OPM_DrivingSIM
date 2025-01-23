@@ -51,11 +51,11 @@ compute_tmin = None
 compute_tmax = None
 labels_mode = 'pca_flip'
 envelope_connectivity = True
+downsample_ts = False  # Downsample time series to desired_sfreq
+desired_sfreq = 10  # Desired sampling frequency for envelope connectivity if downsample_ts is True
 if envelope_connectivity:
     connectivity_method = 'corr'
     orthogonalization = 'pair'  # 'pair' for pairwise leakage correction / 'sym' for symmetric leakage correction
-    downsample_ts = False
-    desired_sfreq = 10
 else:
     connectivity_method = 'pli'
 standarize_con = True  # Standarize connectivity matrices within subjects
