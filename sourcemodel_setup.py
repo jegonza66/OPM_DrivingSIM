@@ -16,7 +16,7 @@ surf_vol = 'surface'
 use_ica_data = True
 force_fsaverage = False
 ico = 4
-spacing = 5.
+spacing = 10.
 pick_ori = None
 high_freq = False
 depth = None
@@ -79,11 +79,10 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     # --------- Bem model ---------#
     # Source data and models path
-    sources_path = paths.sources_path
-    sources_path_subject = sources_path + subject_id
+    sources_path_subject = paths.sources_path + subject_id
     os.makedirs(sources_path_subject, exist_ok=True)
 
-    fname_bem = sources_path + subject_code + f'/{subject_code}_bem_ico{ico}-sol.fif'
+    fname_bem = paths.sources_path + subject_code + f'/{subject_code}_bem_ico{ico}-sol.fif'
     try:
         # Load
         bem = mne.read_bem_solution(fname_bem)
@@ -98,7 +97,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
     if surf_vol == 'volume':
         # Volume
         # Source model
-        fname_src = sources_path + subject_code + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-src.fif'
+        fname_src = paths.sources_path + subject_code + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-src.fif'
         try:
             # Load
             src = mne.read_source_spaces(fname_src)
@@ -122,7 +121,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     elif surf_vol == 'surface':
         # Source model
-        fname_src = sources_path + subject_code + f'/{subject_code}_surface_ico{ico}-src.fif'
+        fname_src = paths.sources_path + subject_code + f'/{subject_code}_surface_ico{ico}-src.fif'
         try:
             # Load
             src = mne.read_source_spaces(fname_src)
@@ -144,14 +143,14 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
                 mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
     elif surf_vol == 'mixed':
-        fname_src_mix = sources_path + subject_code + f'/{subject_code}_mixed_ico{ico}_{int(spacing)}-src.fif'
+        fname_src_mix = paths.sources_path + subject_code + f'/{subject_code}_mixed_ico{ico}_{int(spacing)}-src.fif'
         try:
             # Load
             src_surf = mne.read_source_spaces(fname_src_surf)
         except:
             # Mixed
             # Surface source model
-            fname_src_surf = sources_path + subject_code + f'/{subject_code}_surface_ico{ico}-src.fif'
+            fname_src_surf = paths.sources_path + subject_code + f'/{subject_code}_surface_ico{ico}-src.fif'
             try:
                 # Load
                 src_surf = mne.read_source_spaces(fname_src_surf)
@@ -162,7 +161,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
                 mne.write_source_spaces(fname_src_surf, src_surf, overwrite=True)
 
             # Volume source model
-            fname_src_vol = sources_path + subject_code + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-src.fif'
+            fname_src_vol = paths.sources_path + subject_code + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-src.fif'
             try:
                 # Load
                 src_vol = mne.read_source_spaces(fname_src_vol)
