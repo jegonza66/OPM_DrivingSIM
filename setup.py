@@ -56,14 +56,22 @@ class exp_info:
     """
 
     def __init__(self):
-        # Define ctf data path and files path
+        # Define opm data path and files path
         self.opm_path = paths.opm_path
         self.et_path = paths.et_path
         self.mri_path = paths.mri_path
         self.opt_path = paths.opt_path
 
         # Select subject
-        self.subjects_ids = ['11766'
+        self.subjects_ids = ['11074',
+                             '11766',
+                             '13229',
+                             '13703',
+                             '14446',
+                             '15463',
+                             '15519',
+                             '16589',
+                             '16659'
                              ]
 
         # Subjects bad channels
@@ -71,38 +79,88 @@ class exp_info:
                              }
 
         # Taken from Driving Experiment info v0_1
-        self.exp_times = {'11766': {'cf_start': 49, 'cf_end': 163, 'da_start': 163, 'da_end': 526},
+        self.exp_times = {'11074': {'cf_start': 59, 'cf_end': 172, 'da_start': 172, 'da_end': 535},
+                          '11766': {'cf_start': 49, 'cf_end': 161, 'da_start': 161, 'da_end': 526},
+                          '13229': {'cf_start': 55, 'cf_end': 168, 'da_start': 161, 'da_end': 546},
+                          '13703': {'cf_start': 54, 'cf_end': 168, 'da_start': 161, 'da_end': 532},
+                          '14446': {'cf_start': 50, 'cf_end': 164, 'da_start': 164, 'da_end': 528},
+                          '15463': {'cf_start': 57, 'cf_end': 171, 'da_start': 171, 'da_end': 536},
+                          '15519': {'cf_start': 59, 'cf_end': 172, 'da_start': 172, 'da_end': 546},
+                          '16589': {'cf_start': 49, 'cf_end': 161, 'da_start': 161, 'da_end': 525},
+                          '16659': {'cf_start': 70, 'cf_end': 183, 'da_start': 183, 'da_end': 581},
                           }
 
-        # Distance to the screen during the experiment
-        # It's actually camera Check with matias if this is what we want (top/bottop of the screen)
-        self.screen_distance = {'11766': 68
+        # Dataframe containing DA symbols start times for each subject
+        self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in exp_info().subjects_ids}
+
+        # Distance to the screen during the experiment (Fake info)
+        self.screen_distance = {'11074': 68,
+                                '11766': 68,
+                                '13229': 68,
+                                '13703': 68,
+                                '14446': 68,
+                                '15463': 68,
+                                '15519': 68,
+                                '16589': 68,
+                                '16659': 68
                                 }
 
-        # Screen width
-        self.screen_size = {'11766': 34
+        # Screen width (Fake info)
+        self.screen_size = {'11074': 34,
+                            '11766': 34,
+                            '13229': 34,
+                            '13703': 34,
+                            '14446': 34,
+                            '15463': 34,
+                            '15519': 34,
+                            '16589': 34,
+                            '16659': 34
                             }
 
-        # Subjects groups
-        self.group = {'11766': 'counterbalanced'
+        # Subjects groups (Fake info)
+        self.group = {'11074': 'counterbalanced',
+                      '11766': 'counterbalanced',
+                      '13229': 'counterbalanced',
+                      '13703': 'counterbalanced',
+                      '14446': 'counterbalanced',
+                      '15463': 'counterbalanced',
+                      '15519': 'counterbalanced',
+                      '16589': 'counterbalanced',
+                      '16659': 'counterbalanced'
                       }
 
         # Duration of the DA in seconds
         self.DA_duration = 4.5
 
-        # Tracked eye
-        self.tracked_eye = {'11766': 'left'
+        # Tracked eye (Fake info)
+        self.tracked_eye = {'11074': 'left',
+                            '11766': 'left',
+                            '13229': 'left',
+                            '13703': 'left',
+                            '14446': 'left',
+                            '15463': 'left',
+                            '15519': 'left',
+                            '16589': 'left',
+                            '16659': 'left'
                             }
 
-        # Get et channels by name [Gaze x, Gaze y, Pupils]
-        self.et_channel_names = {'11766': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123']
+        # ET channels name [Gaze x, Gaze y, Pupils] (Fake info)
+        self.et_channel_names = {'11074': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '11766': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '13229': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '13703': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '14446': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '15463': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '15519': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '16589': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
+                                 '16659': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123']
                                  }
 
-        # Trigger channel name
+        # Trigger channel name (Fake info)
         self.trig_ch = 'UPPT002'
         self.alt_trig_ch = 'UPPT001'
 
-        # Buttons channel name
+        # Buttons channel name (Fake info)
         self.button_ch = 'UPPT001'
 
         # Buttons values to colors map
@@ -112,8 +170,16 @@ class exp_info:
         # DAC delay (in ms)
         self.DAC_delay = 10
 
-        # Notch filter line noise frequencies
-        self.line_noise_freqs = {'11766': (50, 57, 100, 109, 150, 200, 250, 300),
+        # Notch filter line noise frequencies (Fake info)
+        self.line_noise_freqs = {'11074': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '11766': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '13229': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '13703': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '14446': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '15463': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '15519': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '16589': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '16659': (50, 57, 100, 109, 150, 200, 250, 300)
                                  }
 
 
@@ -150,22 +216,32 @@ class analysis_parameters:
         # Samples drop at end of missing pupils signal
         self.end_interval_samples = 24
 
-        # Pupil size threshold to consider missing signal
-        self.pupil_thresh = {'11766': -2.6
+        # Pupil size threshold to consider missing signal (Fake info)
+        self.pupil_thresh = {'11074': -2.6,
+                             '11766': -2.6,
+                             '13229': -2.6,
+                             '13703': -2.6,
+                             '14446': -2.6,
+                             '15463': -2.6,
+                             '15519': -2.6,
+                             '16589': -2.6,
+                             '16659': -2.6
                              }
 
         # Et samples shift for ET-MEG alignment
         self.et_samples_shift = {}
 
-        # Trial reject parameter based on MEG peak to peak amplitude
-        self.reject_amp = {'11766': 5e-12
+        # Trial reject parameter based on MEG peak to peak amplitude (Fake info)
+        self.reject_amp = {'11074': 5e-12,
+                           '11766': 5e-12,
+                           '13229': 5e-12,
+                           '13703': 5e-12,
+                           '14446': 5e-12,
+                           '15463': 5e-12,
+                           '15519': 5e-12,
+                           '16589': 5e-12,
+                           '16659': 5e-12
                            }
-
-        # Subjects dev <-> head transformation to use (which head localization)
-        self.head_loc_idx = {'11766': 0
-                             }
-
-        self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in exp_info().subjects_ids}
 
 
 class subject():
