@@ -68,9 +68,9 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         elif 'DA' == epoch_id:
             # Get task onset times as Excel times + 'drive' annotation time (Joaco's decision CHECK PLEASE) Changed to one long epoch
             # drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            # onset_times = [time + drive_onset_time for time in subject.params.da_times['DA times']]
+            # onset_times = [time + drive_onset_time for time in subject.da_times['DA times']]
             drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.exp_times['da_start'] + drive_onset_time]
+            onset_times = [subject.da_times['DA times'][0] + drive_onset_time]
 
             onset_description = ['DA_onset'] * len(onset_times)
             task_duration = [exp_info.DA_duration] * len(onset_times)
@@ -80,7 +80,6 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                                                duration=task_duration,
                                                description=onset_description
                                                )
-
 
             meg_data_copy = meg_data.copy()
             meg_data_copy.set_annotations(stim_annotations)
