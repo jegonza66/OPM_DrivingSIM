@@ -13,6 +13,7 @@ from itertools import compress
 import pandas as pd
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
+import netplotbrain
 
 
 save_path = paths.save_path
@@ -621,7 +622,7 @@ def mri_meg_alignment(subject, subject_code, dig, subjects_dir=os.path.join(path
                                      coord_frame='meg', mri_fiducials=fids_path)
 
 
-def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, connectivity_method='pli', subject_code=None, display_figs=False, save_fig=False,
+def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, connectivity_method='pli', n_lines=100, subject_code=None, display_figs=False, save_fig=False,
                         fig_path=None, fname=None, fontsize=None, ticksize=None):
     # Sanity check
     if save_fig and (not fig_path):
@@ -636,18 +637,11 @@ def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, co
         plt.rcParams.update(params)
 
     # Get colors for each label
-    if surf_vol == 'surface':
-        label_colors = [label.color for label in labels]
-    elif surf_vol == 'volume':
-        label_colors = labels[1]
+    label_colors = [label.color for label in labels]
 
     # Reorder the labels based on their location in the left hemi
-    if surf_vol == 'surface':
-        label_names = [label.name for label in labels]
-        lh_labels = [name for name in label_names if name.endswith('lh')]
-    elif surf_vol == 'volume':
-        label_names = labels[0]
-        lh_labels = [name for name in label_names if ('lh' in name or 'Left' in name)]
+    label_names = [label.name for label in labels]
+    lh_labels = [name for name in label_names if ('lh' in name or 'Left' in name)]
 
     # Get the y-location of the label
     label_ypos = list()
@@ -660,10 +654,13 @@ def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, co
     lh_labels = [label for (yp, label) in sorted(zip(label_ypos, lh_labels))]
 
     # For the right hemi
-    rh_labels = [label[:-2] + 'rh' for label in lh_labels]
+    rh_labels = [label.replace('-lh', '-rh') for label in lh_labels]
 
     # Save the plot order and create a circular layout
     node_order = list()
+    # include first volume nodes that are in neither hemisphere
+    if surf_vol == 'volume':
+        node_order.extend([label for label in label_names if label not in lh_labels and label not in rh_labels])
     node_order.extend(lh_labels[::-1])  # reverse the order
     node_order.extend(rh_labels)
 
@@ -673,7 +670,20 @@ def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, co
     fig, ax = plt.subplots(figsize=(8, 8), facecolor='black', subplot_kw=dict(polar=True))
 
     # Plot
-    mne_connectivity.viz.plot_connectivity_circle(con, label_names, n_lines=50, vmin=vmin, vmax=vmax,
+    if not vmin:
+        sorted_con = con.flatten()
+        sorted_con.sort()
+        if isinstance(n_lines, int):
+            vmin = sorted_con[-n_lines]
+        elif isinstance(n_lines, float):
+            vmin = sorted_con[-int(n_lines*len(label_names))]
+
+    if not vmax:
+        sorted_con = con.flatten()
+        sorted_con.sort()
+        vmax = sorted_con[-1]
+
+    mne_connectivity.viz.plot_connectivity_circle(con, label_names, n_lines=n_lines, vmin=vmin, vmax=vmax,
                                                   node_angles=node_angles, node_colors=label_colors,
                                                   title=f'All-to-All Connectivity ({connectivity_method})', ax=ax,
                                                   show=display_figs)
@@ -688,7 +698,118 @@ def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, co
         save.fig(fig=fig, path=fig_path, fname=fname)
 
 
-def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='GA_connectome', connections_num=.99,
+def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='GA_connectome', connections_num=150,
+               template='MNI152NLin2009cAsym', template_style='glass', template_alpha=1, node_alpha=0.5, node_scale=30, node_color='red',
+               edge_alpha=0.7, edge_thresholddirection='above', edge_cmap=None, edge_widthscale=0.7, view='preset-3'):
+
+    # Sanity check
+    if save_fig and (not fig_path):
+        raise ValueError('Please provide path and filename to save figure. Else, set save_fig to false.')
+
+    # Get parcelation labels positions
+    label_names = [label.name for label in labels]
+    label_xpos = list()
+    label_ypos = list()
+    label_zpos = list()
+    for name in [label.name for label in labels]:
+        idx = label_names.index(name)
+        label_xpos.append(np.mean(labels[idx].pos[:, 0]) * 1000)
+        label_ypos.append(np.mean(labels[idx].pos[:, 1]) * 1000)
+        label_zpos.append(np.mean(labels[idx].pos[:, 2]) * 1000)
+
+    nodes_df = pd.DataFrame(data={'x': label_xpos,
+                                  'y': label_ypos,
+                                  'z': label_zpos})
+
+    # Plot only if at least 1 connection
+    if abs(adjacency_matrix).sum() > 0:
+        # Define threshold based on connections number
+        # Get the values that exceed the thresh and define edges to plot
+        # Extract retained edge values for vmin/vmax
+        if connections_num > 1:
+            if edge_thresholddirection == 'absabove':
+                edge_threshold = sorted(np.sort(np.abs(adjacency_matrix), axis=None))[-int(connections_num * 2) - 1]
+                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) > edge_threshold]
+            elif edge_thresholddirection == 'above':
+                edge_threshold = sorted(np.sort(adjacency_matrix, axis=None))[-int(connections_num * 2) - 1]
+                retained_edges = adjacency_matrix[adjacency_matrix > edge_threshold]
+            elif edge_thresholddirection == 'below':
+                edge_threshold = sorted(np.sort(adjacency_matrix, axis=None))[int(connections_num * 2) + 1]
+                retained_edges = adjacency_matrix[adjacency_matrix < edge_threshold]
+        else:
+            edge_threshold = connections_num
+            if edge_thresholddirection == 'absabove':
+                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) > edge_threshold]
+            elif edge_thresholddirection == 'above':
+                retained_edges = adjacency_matrix[adjacency_matrix > edge_threshold]
+            elif edge_thresholddirection == 'below':
+                retained_edges = adjacency_matrix[adjacency_matrix < edge_threshold]
+
+        # Determine vmin and vmax from retained edges
+        # Option 1: Signed values (for diverging colormap)
+        vmin = np.min(retained_edges)
+        vmax = np.max(retained_edges)
+
+        if edge_cmap is None:
+            if vmin < 0:
+                edge_cmap = 'coolwarm'
+            else:
+                edge_cmap = 'YlOrRd'
+
+        # Corresponding node labels
+        nodes = [i for i in range(len(adjacency_matrix))]
+
+        # Convert matrix to long format (excluding diagonal)
+        i, j = np.triu_indices_from(adjacency_matrix, k=1)  # Get upper triangular indices
+        weights = adjacency_matrix[i, j]  # Get connectivity values
+
+        # Create DataFrame
+        weights_col_name = "weight"
+        connectivity_df = pd.DataFrame({
+            "i": [nodes[idx] for idx in i],  # Convert indices to node names
+            "j": [nodes[idx] for idx in j],
+            weights_col_name: weights
+        })
+
+        # Call netplotbrain to plot
+        fig, ax = netplotbrain.plot(
+            template=template,
+            template_style=template_style,
+            template_alpha=template_alpha,
+            nodes=nodes_df,
+            node_alpha=node_alpha,
+            node_scale=node_scale,
+            node_color=node_color,
+            edges=adjacency_matrix,
+            edges_df=connectivity_df,
+            edge_alpha=edge_alpha,
+            edge_thresholddirection=edge_thresholddirection,
+            edge_threshold=edge_threshold,
+            edge_color=weights_col_name,
+            edge_cmap=edge_cmap,
+            edge_widthscale=edge_widthscale,
+            view=view,
+            highlight_nodes=None
+        )
+
+        # Add a colorbar with calculated vmin and vmax
+        sm = plt.cm.ScalarMappable(cmap=edge_cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax[-1], label='Connectivity Strength', shrink=0.5, aspect=20)
+
+        # Show the plot
+        plt.tight_layout()
+
+        # Save
+        if save_fig:
+            if not fname:
+                fname = f'{subject.subject_id}_connectome'
+            if subject_code == 'fsaverage' and 'fsaverage' not in fname:
+                fname += '_fsaverage'
+            save.fig(fig=fig, path=fig_path, fname=fname)
+
+
+def connectome_orig(subject, labels, adjacency_matrix, subject_code, surf_vol, save_fig=False, fig_path=None, fname='GA_connectome', connections_num=100,
                node_size=10, node_color='k', linewidth=2, cmap=None, edge_vmin=None, edge_vmax=None):
 
     # Sanity check
@@ -697,6 +818,7 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
 
     # Get parcelation labels positions
     label_names = [label.name for label in labels]
+
     # Get the y-location of the label
     label_xpos = list()
     label_ypos = list()
@@ -708,7 +830,10 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
         label_zpos.append(np.mean(labels[idx].pos[:, 2]))
 
     # Make node position array and reescale
-    nodes_pos = np.array([label_xpos, label_ypos, label_zpos]).transpose() * 1100
+    if surf_vol == 'surface':
+        nodes_pos = np.array([label_xpos, label_ypos, label_zpos]).transpose() * 1100
+    elif surf_vol == 'volume':
+        nodes_pos = np.array([label_xpos, label_ypos, label_zpos]).transpose() * 1100
 
     # Plot only if at least 1 connection
     if abs(adjacency_matrix).sum() > 0:
@@ -718,7 +843,7 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
             if not edge_vmin:
                 edge_vmin = edge_threshold
             if not edge_vmax:
-                edge_vmax = np.sort(adjacency_matrix, axis=None)[-1]
+                edge_vmax = adjacency_matrix.max()
             if edge_vmin < 0:
                 cmap = 'bwr'
             else:
@@ -751,20 +876,21 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
             save.fig(fig=fig, path=fig_path, fname=fname)
 
 
-def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='GA_matrix'):
-
-    matplotlib.use('TkAgg')
+def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, surf_vol, save_fig=False, fig_path=None, fname='GA_matrix'):
 
     # Sanity check
     if save_fig and (not fig_path):
         raise ValueError('Please provide path and filename to save figure. Else, set save_fig to false.')
 
+    # Get labels names
     label_names = [label.name for label in labels]
+
     # Get the y-location of the label
     label_ypos = list()
     for name in label_names:
         idx = label_names.index(name)
-        label_ypos.append(np.mean(labels[idx].pos[:, 1]))
+        ypos = np.mean(labels[idx].pos[:, 1])
+        label_ypos.append(ypos)
 
     # Make adjacency matrix sorted from frontal to posterior
     sort = np.argsort(label_ypos)  # Get sorted indexes based on regions anterior-posterior order
@@ -802,32 +928,41 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=Fa
     return sorted_matrix
 
 
-def connectivity_strength(subject, subject_code, con, src, labels, surf_vol, subjects_dir, save_fig, fig_path, fname, threshold=1):
+def connectivity_strength(subject, subject_code, con, src, labels, surf_vol, subjects_dir, labels_fname, label_names_segmentation,
+                          save_fig, fig_path, fname, threshold=1):
 
     try:
         mne.viz.close_all_3d_figures()
     except:
         pass
 
+    # Define save file name
+    if not fname:
+        fname = f'{subject.subject_id}_strength'
+    if subject_code == 'fsaverage' and 'fsaverage' not in fname:
+        fname += '_fsaverage'
+
     # Plot connectivity strength (connections from each region to other regions)
     degree = mne_connectivity.degree(connectivity=con, threshold_prop=threshold)
     if surf_vol == 'surface':
-        stc = mne.labels_to_stc(labels, degree)
+        stc = mne.labels_to_stc(labels, degree, src=src)
         stc = stc.in_label(mne.Label(src[0]["vertno"], hemi="lh") + mne.Label(src[1]["vertno"], hemi="rh"))
         hemi = 'split'
         views = ['lateral', 'med']
+        brain = stc.plot(src=src, subject=subject_code, subjects_dir=subjects_dir, size=(1000, 500), clim=dict(kind="percent", lims=[50, 75, 95]), hemi=hemi, views=views)
 
     if surf_vol == 'volume':
-        stc = mne.VolSourceEstimate(degree, [src[0]["vertno"]], 0, 1, "bst_resting")
+        # stc = mne.VolSourceEstimate(degree, [src[0]["vertno"]], 0, 1, "bst_resting")
+        stc = mne.labels_to_stc(labels=(labels_fname, label_names_segmentation), values=degree, src=src)
+        # stc = stc.in_label(mne.Label(src[0]["vertno"]), mri=labels_fname, src=src)
         hemi = 'both'
         views = 'dorsal'
+        try:
+            brain = stc.plot_3d(src=src, subject=subject_code, subjects_dir=subjects_dir, size=(1000, 500), clim=dict(kind="percent", lims=[40, 75, 95]), hemi=hemi, views=views)
+        except:
+            brain = stc.plot_3d(src=src, subject=subject_code, subjects_dir=subjects_dir, size=(1000, 500), hemi=hemi, views=views)
 
-    brain = stc.plot(src=src, subject=subject_code, subjects_dir=subjects_dir, size=(1000, 500), clim=dict(kind="percent", lims=[50, 75, 95]), hemi=hemi, views=views)
     if save_fig:
-        if not fname:
-            fname = f'{subject.subject_id}_strength'
-        if subject_code == 'fsaverage' and 'fsaverage' not in fname:
-            fname += '_fsaverage'
         brain.save_image(filename=fig_path + fname + '.png')
         brain.save_image(filename=fig_path + '/svg/' + fname + '.pdf')
 
