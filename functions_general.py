@@ -1,9 +1,4 @@
 import numpy as np
-import pandas as pd
-import mne
-import scipy
-from scipy.signal import butter, lfilter
-from mni_to_atlas import AtlasBrowser
 
 
 def find_nearest(array, values):
