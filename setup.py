@@ -91,7 +91,7 @@ class exp_info:
                           }
 
         # Dataframe containing DA symbols start times for each subject
-        self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in exp_info().subjects_ids}
+        self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in self.subjects_ids}
 
         # Distance to the screen during the experiment (Fake info)
         self.screen_distance = {'11074': 68,
