@@ -27,12 +27,12 @@ exp_info = setup.exp_info()
 # --------- Define Parameters ---------#
 save_fig = True
 display_figs = False
-plot_individuals = True
+plot_individuals = False
 save_data = True
 
 # Trial parameters
 task = 'DA'
-band_id = 'Gamma'  # Frequency band
+band_id = 'HGamma'  # Frequency band
 epoch_ids = ['DA', 'CF']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
 reject = False  # Peak to peak amplitude epoch rejection
 data_type = 'ICA'  # 'RAW'
@@ -48,8 +48,6 @@ if surf_vol == 'volume':
     parcelation_segmentation = 'aparc+aseg'  # aseg / aparc+aseg / aparc.a2009s+aseg
 elif surf_vol == 'surface':
     parcelation_segmentation = 'aparc'  # aparc / aparc.a2009s
-downsample_epochs = False  # Downsample epochs to desired_epochs_sfreq
-desired_epochs_sfreq = 150  # Desired sampling frequency for epochs data
 
 # Statistics parameters
 correct_multiple_comparisons = True
@@ -62,14 +60,14 @@ if surf_vol == 'volume':
 elif surf_vol == 'surface':
     labels_mode = 'pca_flip'
 envelope_connectivity = True
-downsample_ts = False  # Downsample time series to desired_sfreq
-desired_sfreq = 10  # Desired sampling frequency for envelope connectivity if downsample_ts is True
+downsample_ts = True  # Downsample time series to desired_sfreq
+desired_sfreq = 125  # Desired sampling frequency for envelope connectivity if downsample_ts is True
 if envelope_connectivity:
     connectivity_method = 'corr'
     orthogonalization = 'pair'  # 'pair' for pairwise leakage correction / 'sym' for symmetric leakage correction
 else:
     connectivity_method = 'pli'
-standarize_con = True  # Standarize connectivity matrices within subjects
+standarize_normalize_con = 'norm'  # Standarize connectivity matrices within subjects
 
 
 #----- Setup -----#
@@ -106,6 +104,7 @@ else:
 #--------- Run ---------#
 # Save data of each id
 subj_matrices = {}
+subj_matrices_no_std = {}
 ga_matrices = {}
 for epoch_id in epoch_ids:
 
@@ -138,11 +137,12 @@ for epoch_id in epoch_ids:
     label_ts_save_path = paths.save_path + f"Source_labels_{data_type}/{run_path}/" + labels_model_path
 
     # Connectivity matrices plots and save paths
-    fig_path = paths.plots_path + f"{main_path}_{data_type}/" + run_path_plot + source_model_path + f"_{parcelation_segmentation}_{final_path}_std{standarize_con}/"
+    fig_path = paths.plots_path + f"{main_path}_{data_type}/" + run_path_plot + source_model_path + f"_{parcelation_segmentation}_{final_path}_{standarize_normalize_con}/"
     save_path = paths.save_path + f"{main_path}_{data_type}/" + run_path_plot + source_model_path + f"_{parcelation_segmentation}_{final_path}/"
 
     # Save conectivity matrices
     subj_matrices[epoch_id] = []
+    subj_matrices_no_std[epoch_id] = []
     ga_matrices[epoch_id] = []
 
     # Get parcelation labels and set up connectivity matrix
@@ -172,6 +172,7 @@ for epoch_id in epoch_ids:
         fsaverage_labels = mne.get_volume_labels_from_src(vol_labels_src_fsaverage, subject='fsaverage', subjects_dir=subjects_dir)
 
     con_matrix = []
+    con_matrix_no_std = []
     # --------- Run ---------#
     for subj_num, subject_id in enumerate(exp_info.subjects_ids):
 
@@ -293,9 +294,6 @@ for epoch_id in epoch_ids:
                                                                    baseline=baseline, save_data=save_data,
                                                                    epochs_save_path=epochs_save_path,
                                                                    epochs_data_fname=epochs_data_fname, reject=reject)
-                # Downsample epochs due to memory issues
-                if downsample_epochs:
-                    data_epochs.resample(sfreq=desired_epochs_sfreq)
                 data_epochs.pick('meg')
 
                 # --------- Source estimation ---------#
@@ -327,7 +325,7 @@ for epoch_id in epoch_ids:
             if envelope_connectivity:
                 if downsample_ts:
                     for i, ts in enumerate(label_ts):
-                        sfreq = data_epochs.info['sfreq']
+                        sfreq = meg_data.info['sfreq']
                         samples_interval = int(sfreq/desired_sfreq)
                         # Taking jumping windows average of samples
                         label_ts[i] = np.array([np.mean(ts[:, j*samples_interval:(j+1)*samples_interval], axis=-1) for j in range(int(len(ts[0])/samples_interval) + 1)]).T
@@ -359,9 +357,15 @@ for epoch_id in epoch_ids:
         con_subj = con.get_data(output='dense')[:, :, 0]
         con_subj = np.maximum(con_subj, con_subj.transpose())  # make symetric
 
+        # Save for comparisons
+        con_matrix_no_std.append(con_subj)
+
         # Standarize
-        if standarize_con:
+        if standarize_normalize_con == 'std':
             con_subj = (con_subj - np.mean(con_subj)) / np.std(con_subj)
+        # Normalize
+        elif standarize_normalize_con == 'norm':
+            con_subj = con_subj / np.sqrt(np.mean(con_subj**2))
 
         # Save for GA
         con_matrix.append(con_subj)
@@ -377,7 +381,7 @@ for epoch_id in epoch_ids:
                                     fig_path=fig_path_subj, fname=None)
 
             # Plot connectivity matrix
-            sorted_matrix = plot_general.plot_con_matrix(subject=subject, labels=labels, adjacency_matrix=con_subj, subject_code=subject_code, surf_vol=surf_vol,
+            sorted_matrix = plot_general.plot_con_matrix(subject=subject, labels=labels, adjacency_matrix=con_subj, subject_code=subject_code,
                                          save_fig=save_fig, fig_path=fig_path_subj, fname=None)
 
             # Plot connectivity strength (connections from each region to other regions)
@@ -386,21 +390,20 @@ for epoch_id in epoch_ids:
 
     # --------- Grand Average ---------#
     # Get connectivity matrix for GA
-    # ga_con_matrix = con_matrix.mean(0)
     ga_con_matrix = np.array(con_matrix).mean(0)
     # Fill diagonal with 0
     np.fill_diagonal(ga_con_matrix, 0)
 
     # Plot circle
-    plot_general.connectivity_circle(subject='GA', labels=labels, surf_vol=surf_vol, con=ga_con_matrix, connectivity_method=connectivity_method, subject_code='fsaverage',
+    plot_general.connectivity_circle(subject='GA', labels=fsaverage_labels, surf_vol=surf_vol, con=ga_con_matrix, connectivity_method=connectivity_method, subject_code='fsaverage',
                                      display_figs=display_figs, save_fig=save_fig, fig_path=fig_path, fname='GA_circle')
 
     # Plot connectome
-    plot_general.connectome(subject='GA', labels=labels, adjacency_matrix=ga_con_matrix, subject_code='fsaverage', save_fig=save_fig, fig_path=fig_path,
+    plot_general.connectome(subject='GA', labels=fsaverage_labels, adjacency_matrix=ga_con_matrix, subject_code='fsaverage', save_fig=save_fig, fig_path=fig_path,
                             fname='GA_connectome')
 
     # Plot matrix
-    ga_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=ga_con_matrix, subject_code='fsaverage', surf_vol=surf_vol,
+    ga_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=fsaverage_labels, adjacency_matrix=ga_con_matrix, subject_code='fsaverage',
                                                     save_fig=save_fig, fig_path=fig_path, fname='GA_matrix')
 
     # Plot connectivity strength (connections from each region to other regions)
@@ -409,8 +412,8 @@ for epoch_id in epoch_ids:
                                        fig_path=fig_path, fname='GA_strength')
 
     # Get connectivity matrices for comparisson
-    # subj_matrices[epoch_id] = con_matrix
     subj_matrices[epoch_id] = np.array(con_matrix)
+    subj_matrices_no_std[epoch_id] = np.array(con_matrix_no_std)
     ga_matrices[epoch_id] = ga_sorted_matrix
 
 
@@ -483,7 +486,7 @@ if len(epoch_ids) > 1:
                                     save_fig=save_fig, fig_path=fig_path_diff, fname=f'GA_t_con', connections_num=(log_p_values > 0).sum())
 
             # Plot matrix
-            sig_diff_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=t_values, subject_code='fsaverage', surf_vol=surf_vol,
+            sig_diff_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=t_values, subject_code='fsaverage',
                                          save_fig=save_fig, fig_path=fig_path_diff, fname='GA_matrix_t')
 
             # Plot connectivity strength (connections from each region to other regions)
@@ -493,9 +496,22 @@ if len(epoch_ids) > 1:
 
         #----- Difference -----#
         con_diff = []
+        mean_global_con = {comparison[0]: [], comparison[1]: []}
+        mean_global_con_diff = []
         # Compute difference for cross2
-        for i in range(len(subj_matrices[comparison[0]])):
-            con_diff.append(subj_matrices[comparison[0]][i] - subj_matrices[comparison[1]][i])
+        for i in range(len(subj_matrices_no_std[comparison[0]])):
+            # Global mean connectivity
+            mean_global_con[comparison[0]].append(subj_matrices_no_std[comparison[0]][i].mean())
+            mean_global_con[comparison[1]].append(subj_matrices_no_std[comparison[1]][i].mean())
+            mean_global_con_diff.append((mean_global_con[comparison[0]][i] - mean_global_con[comparison[1]][i]) /
+                                           (mean_global_con[comparison[0]][i] + mean_global_con[comparison[1]][i]) )
+            # Matrix differences
+            subj_dif = subj_matrices_no_std[comparison[0]][i] - subj_matrices_no_std[comparison[1]][i]
+            if standarize_normalize_con == 'std':
+                subj_dif = (subj_dif - np.mean(subj_dif)) / np.std(subj_dif)
+            elif standarize_normalize_con == 'norm':
+                subj_dif = subj_dif / np.sqrt(np.mean(subj_dif**2))
+            con_diff.append(subj_dif)
 
         # Make array
         con_diff = np.array(con_diff)
@@ -506,6 +522,10 @@ if len(epoch_ids) > 1:
         # Fill diagonal with 0
         np.fill_diagonal(con_diff_ga, 0)
 
+        # Plot global mean connectivity
+        plot_general.global_mean_con(subject='GA', mean_global_con=mean_global_con, subject_code='fsaverage',
+                                     save_fig=save_fig, fig_path=fig_path_diff, fname='GA_global_mean')
+
         # Plot circle
         plot_general.connectivity_circle(subject='GA', labels=labels, surf_vol=surf_vol, con=con_diff_ga, connectivity_method=connectivity_method, subject_code='fsaverage',
                                          display_figs=display_figs, save_fig=save_fig, fig_path=fig_path_diff, fname='GA_circle_dif')
@@ -515,7 +535,7 @@ if len(epoch_ids) > 1:
                                 save_fig=save_fig, fig_path=fig_path_diff, fname='GA_connectome_dif')
 
         # Plot matrix
-        diff_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage', surf_vol=surf_vol,
+        diff_sorted_matrix = plot_general.plot_con_matrix(subject='GA', labels=labels, adjacency_matrix=con_diff_ga, subject_code='fsaverage',
                                      save_fig=save_fig, fig_path=fig_path_diff, fname='GA_matrix_dif')
 
         # Plot connectivity strength (connections from each region to other regions)
