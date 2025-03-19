@@ -622,6 +622,31 @@ def mri_meg_alignment(subject, subject_code, dig, subjects_dir=os.path.join(path
                                      coord_frame='meg', mri_fiducials=fids_path)
 
 
+def global_mean_con(subject, mean_global_con, subject_code=None, save_fig=False, fig_path=None, fname=None):
+    # Sanity check
+    if save_fig and (not fig_path):
+        raise ValueError('Please provide path and filename to save figure. Else, set save_fig to false.')
+
+    means = [np.mean(mean_global_con[key]) for key in mean_global_con]
+    std_devs = [np.std(mean_global_con[key], ddof=1) for key in mean_global_con.keys()]  # Sample std deviation
+
+    # Create bar plot
+    fig = plt.figure(figsize=(6, 4))
+    plt.bar(mean_global_con.keys(), means, yerr=std_devs, capsize=5, color=['blue', 'blue'], alpha=0.7)
+
+    # Labels and title
+    plt.ylabel("Mean Value")
+    plt.title("Mean and Standard Deviation of DA and CF")
+
+    # Save
+    if save_fig:
+        if not fname:
+            fname = f'{subject.subject_id}_circle'
+        if subject_code == 'fsaverage':
+            fname += '_fsaverage'
+        save.fig(fig=fig, path=fig_path, fname=fname)
+
+
 def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, connectivity_method='pli', n_lines=100, subject_code=None, display_figs=False, save_fig=False,
                         fig_path=None, fname=None, fontsize=None, ticksize=None):
     # Sanity check
@@ -698,9 +723,9 @@ def connectivity_circle(subject, labels, con, surf_vol, vmin=None, vmax=None, co
         save.fig(fig=fig, path=fig_path, fname=fname)
 
 
-def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='GA_connectome', connections_num=150,
-               template='MNI152NLin2009cAsym', template_style='glass', template_alpha=1, node_alpha=0.5, node_scale=30, node_color='red',
-               edge_alpha=0.7, edge_thresholddirection='above', edge_cmap=None, edge_widthscale=0.7, view='preset-3'):
+def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='connectome', connections_num=150,
+               template='MNI152NLin2009cAsym', template_style='glass', template_alpha=10, node_alpha=0.5, node_scale=30, node_color='black',
+               edge_alpha=0.7, edge_colorvminvmax='absmax', edge_thresholddirection='above', edge_cmap='coolwarm', edge_widthscale=0.7, view='preset-3'):
 
     # Sanity check
     if save_fig and (not fig_path):
@@ -713,9 +738,9 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
     label_zpos = list()
     for name in [label.name for label in labels]:
         idx = label_names.index(name)
-        label_xpos.append(np.mean(labels[idx].pos[:, 0]) * 1000)
-        label_ypos.append(np.mean(labels[idx].pos[:, 1]) * 1000)
-        label_zpos.append(np.mean(labels[idx].pos[:, 2]) * 1000)
+        label_xpos.append(np.mean(labels[idx].pos[:, 0]) * 1100)
+        label_ypos.append(np.mean(labels[idx].pos[:, 1]) * 1100)
+        label_zpos.append(np.mean(labels[idx].pos[:, 2]) * 1100)
 
     nodes_df = pd.DataFrame(data={'x': label_xpos,
                                   'y': label_ypos,
@@ -747,8 +772,14 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
 
         # Determine vmin and vmax from retained edges
         # Option 1: Signed values (for diverging colormap)
-        vmin = np.min(retained_edges)
-        vmax = np.max(retained_edges)
+        if edge_colorvminvmax == 'absmax':
+            vmax = np.max(abs(retained_edges))
+            vmin = - vmax
+        elif edge_colorvminvmax == 'minmax':
+            vmin = np.min(retained_edges)
+            vmax = np.max(retained_edges)
+        else:
+            raise NameError(f"edge_colorvminvmax should be either 'absmax' or 'minmax'")
 
         if edge_cmap is None:
             if vmin < 0:
@@ -787,9 +818,9 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
             edge_threshold=edge_threshold,
             edge_color=weights_col_name,
             edge_cmap=edge_cmap,
+            edge_colorvminvmax=[vmin, vmax],
             edge_widthscale=edge_widthscale,
             view=view,
-            highlight_nodes=None
         )
 
         # Add a colorbar with calculated vmin and vmax
@@ -809,74 +840,7 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
             save.fig(fig=fig, path=fig_path, fname=fname)
 
 
-def connectome_orig(subject, labels, adjacency_matrix, subject_code, surf_vol, save_fig=False, fig_path=None, fname='GA_connectome', connections_num=100,
-               node_size=10, node_color='k', linewidth=2, cmap=None, edge_vmin=None, edge_vmax=None):
-
-    # Sanity check
-    if save_fig and (not fig_path):
-        raise ValueError('Please provide path and filename to save figure. Else, set save_fig to false.')
-
-    # Get parcelation labels positions
-    label_names = [label.name for label in labels]
-
-    # Get the y-location of the label
-    label_xpos = list()
-    label_ypos = list()
-    label_zpos = list()
-    for name in label_names:
-        idx = label_names.index(name)
-        label_xpos.append(np.mean(labels[idx].pos[:, 0]))
-        label_ypos.append(np.mean(labels[idx].pos[:, 1]))
-        label_zpos.append(np.mean(labels[idx].pos[:, 2]))
-
-    # Make node position array and reescale
-    if surf_vol == 'surface':
-        nodes_pos = np.array([label_xpos, label_ypos, label_zpos]).transpose() * 1100
-    elif surf_vol == 'volume':
-        nodes_pos = np.array([label_xpos, label_ypos, label_zpos]).transpose() * 1100
-
-    # Plot only if at least 1 connection
-    if abs(adjacency_matrix).sum() > 0:
-        # Define edges to plot
-        if connections_num >= 1:
-            edge_threshold = sorted(np.sort(adjacency_matrix, axis=None))[-int(connections_num * 2)]
-            if not edge_vmin:
-                edge_vmin = edge_threshold
-            if not edge_vmax:
-                edge_vmax = adjacency_matrix.max()
-            if edge_vmin < 0:
-                cmap = 'bwr'
-            else:
-                cmap = 'Reds'
-
-        elif connections_num < 1:
-            edge_threshold = f'{connections_num*100}%'
-            if not edge_vmax:
-                edge_vmax = adjacency_matrix.max()
-
-            if adjacency_matrix.min() < 0:
-                if not edge_vmin:
-                    edge_vmin = adjacency_matrix.min()
-                cmap = 'bwr'
-            else:
-                if not edge_vmin:
-                    edge_vmin = sorted(np.sort(adjacency_matrix, axis=None))[-int((1 - connections_num) * len(np.sort(adjacency_matrix, axis=None))*2)]  # set colorbar minimum as twice smaller than plot minimum
-                cmap = 'Reds'
-
-        # Plot connectome
-        fig = plotting.plot_connectome(adjacency_matrix=adjacency_matrix, node_coords=nodes_pos, edge_threshold=edge_threshold, node_size=node_size, node_color=node_color,
-                                       edge_vmin=edge_vmin, edge_vmax=edge_vmax, edge_cmap=cmap, edge_kwargs=dict(linewidth=linewidth), colorbar=True)
-
-        # Save
-        if save_fig:
-            if not fname:
-                fname = f'{subject.subject_id}_connectome'
-            if subject_code == 'fsaverage' and 'fsaverage' not in fname:
-                fname += '_fsaverage'
-            save.fig(fig=fig, path=fig_path, fname=fname)
-
-
-def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, surf_vol, save_fig=False, fig_path=None, fname='GA_matrix'):
+def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='matrix'):
 
     # Sanity check
     if save_fig and (not fig_path):
@@ -886,19 +850,29 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, surf_vol, s
     label_names = [label.name for label in labels]
 
     # Get the y-location of the label
-    label_ypos = list()
-    for name in label_names:
-        idx = label_names.index(name)
-        ypos = np.mean(labels[idx].pos[:, 1])
-        label_ypos.append(ypos)
+    label_ypos = np.array([np.mean(labels[label_names.index(name)].pos[:, 1]) for name in label_names])
 
-    # Make adjacency matrix sorted from frontal to posterior
-    sort = np.argsort(label_ypos)  # Get sorted indexes based on regions anterior-posterior order
-    # adjacency_matrix = np.maximum(adjacency_matrix, adjacency_matrix.transpose())  # Make symetric
-    sorted_matrix = adjacency_matrix[sort[::-1]]  # Sort on one axis
-    sorted_matrix = sorted_matrix[:, sort[::-1]]  # Apply same sort on second axis
+    # Separate left and right hemisphere labels
+    left_indices = [i for i, name in enumerate(label_names) if 'lh' in name]
+    right_indices = [i for i, name in enumerate(label_names) if 'rh' in name]
 
-    sorted_labels = [label_names[i] for i in sort][::-1]  # Get labels in sorted order
+    # Sort within each hemisphere (anterior-to-posterior)
+    left_sorted = sorted(left_indices, key=lambda i: label_ypos[i], reverse=True)  # Anterior to posterior
+    right_sorted = sorted(right_indices, key=lambda i: label_ypos[i], reverse=True)  # Anterior to posterior
+
+    # Combine order: left first, then right
+    sorted_indices = left_sorted + right_sorted
+
+    # Reorder the connectivity matrix and labels
+    sorted_matrix = adjacency_matrix[sorted_indices, :][:, sorted_indices]
+    sorted_labels = [label_names[i] for i in sorted_indices]  # Get labels in sorted order
+
+    # # Make adjacency matrix sorted from frontal to posterior
+    # sort = np.argsort(label_ypos)  # Get sorted indexes based on regions anterior-posterior order
+    # sorted_matrix = adjacency_matrix[sort[::-1]]  # Sort on one axis
+    # sorted_matrix = sorted_matrix[:, sort[::-1]]  # Apply same sort on second axis
+    #
+    # sorted_labels = [label_names[i] for i in sort][::-1]  # Get labels in sorted order
 
     # Get min and max from data
     vmin = np.sort(sorted_matrix.ravel())[len(label_ypos)]
@@ -907,8 +881,8 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, surf_vol, s
     # Plot
     fig = plt.figure(figsize=(8, 5))
     norm = colors.CenteredNorm(vcenter=0)
-    # im = plt.imshow(sorted_matrix, cmap='bwr', norm=norm)
-    im = plt.imshow(sorted_matrix, vmin=vmin, vmax=vmax)
+    im = plt.imshow(sorted_matrix, cmap='coolwarm', norm=norm)
+    # im = plt.imshow(sorted_matrix, vmin=vmin, vmax=vmax)
     fig.colorbar(im)
 
     ax = plt.gca()
