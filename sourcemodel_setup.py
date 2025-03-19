@@ -18,7 +18,7 @@ force_fsaverage = False
 ico = 4
 spacing = 10.
 pick_ori = None
-high_freq = False
+high_freq = True
 depth = None
 
 # Define Subjects_dir as Freesurfer output folder
@@ -37,7 +37,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     if subject_id != 'fsaverage':
         if high_freq:
-            meg_data = load.filtered_data(subject_id=subject_id, band_id='HGamma', save_data=False)
+            meg_data = load.filtered_data(subject_id=subject_id, task=task, band_id='HGamma', save_data=False)
         else:
             meg_data = load.ica_data(subject_id=subject_id, task=task)
         data_type = 'ICA'
