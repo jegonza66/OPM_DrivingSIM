@@ -27,15 +27,15 @@ exp_info = setup.exp_info()
 # --------- Define Parameters ---------#
 save_fig = True
 display_figs = False
-plot_individuals = False
+plot_individuals = True
 save_data = True
 
 # Trial parameters
 task = 'DA'
-band_id = 'HGamma'  # Frequency band
+band_id = 'Beta'  # Frequency band
 epoch_ids = ['DA', 'CF']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
 reject = False  # Peak to peak amplitude epoch rejection
-data_type = 'ICA'  # 'RAW'
+data_type = 'ICA_annot'  # 'RAW' / 'ICA' / 'ICA_annot'
 
 # Source estimation parameters
 force_fsaverage = False  # Force all participants to use fsaverage regardless of their MRI data
@@ -216,7 +216,7 @@ for epoch_id in epoch_ids:
         # Data filenames
         epochs_data_fname = f'Subject_{subject_id}_epo.fif'
         labels_ts_data_fname = f'Subject_{subject_id}.pkl'
-        fname_lcmv = f'/{subject_code}_band{band_id}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}-lcmv.h5'
+        fname_lcmv = f'/{subject_code}_{data_type}_band{band_id}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}-lcmv.h5'
 
         # Save figures path
         fig_path_subj = fig_path + f'{subject_id}/'
@@ -296,6 +296,34 @@ for epoch_id in epoch_ids:
                                                                    epochs_data_fname=epochs_data_fname, reject=reject)
                 data_epochs.pick('meg')
 
+                if data_type == 'ICA_annot':
+                    # --------- EXTRA ---------#
+                    # 2. Get the epoch data and times
+                    epoch_data = data_epochs.get_data()[0]  # Shape: (n_channels, n_times), single epoch
+                    epoch_times = data_epochs.times  # Time vector relative to tmin
+
+                    # 3. Use annotations to drop BAD segments
+                    # Create a mask based on the annotations in the epoch
+                    good_mask = np.ones(len(epoch_times), dtype=bool)
+                    for annot in data_epochs.annotations:
+                        if annot['description'] == 'BAD':  # Only consider BAD annotations
+                            start = max(annot['onset'] - data_epochs.tmin, 0)  # Adjust to epoch time
+                            end = min(annot['onset'] + annot['duration'] - data_epochs.tmin, data_tmax - data_tmin)
+                            bad_indices = (epoch_times >= start) & (epoch_times <= end)
+                            good_mask[bad_indices] = False
+
+                    # 4. Apply the mask to keep only good segments
+                    good_data = epoch_data[:, good_mask]  # Shape: (n_channels, n_good_times)
+                    good_times = epoch_times[good_mask]
+
+                    # 5. (Optional) Create a new Raw object with the cleaned data
+                    info = data_epochs.info.copy()
+                    cleaned_raw = mne.io.RawArray(good_data, info)
+
+                    # Create epochs from the cleaned Raw object
+                    data_epochs = mne.Epochs(cleaned_raw, np.array([[0, 0, 1]]), event_id={'condition': 1}, tmin=0,
+                                             tmax=cleaned_raw.times[-1], baseline=None, preload=True)
+
                 # --------- Source estimation ---------#
                 # Define filter
                 if os.path.isfile(sources_path_subject + fname_lcmv):
@@ -328,7 +356,7 @@ for epoch_id in epoch_ids:
                         sfreq = meg_data.info['sfreq']
                         samples_interval = int(sfreq/desired_sfreq)
                         # Taking jumping windows average of samples
-                        label_ts[i] = np.array([np.mean(ts[:, j*samples_interval:(j+1)*samples_interval], axis=-1) for j in range(int(len(ts[0])/samples_interval) + 1)]).T
+                        label_ts[i] = np.array([np.mean(ts[:, j*samples_interval:(j+1)*samples_interval], axis=-1) for j in range(int(len(ts[0])/samples_interval))]).T
                         # Subsampling
                         # label_ts[i] = ts[:, ::samples_interval]
 
@@ -504,7 +532,7 @@ if len(epoch_ids) > 1:
             mean_global_con[comparison[0]].append(subj_matrices_no_std[comparison[0]][i].mean())
             mean_global_con[comparison[1]].append(subj_matrices_no_std[comparison[1]][i].mean())
             mean_global_con_diff.append((mean_global_con[comparison[0]][i] - mean_global_con[comparison[1]][i]) /
-                                           (mean_global_con[comparison[0]][i] + mean_global_con[comparison[1]][i]) )
+                                           (mean_global_con[comparison[0]][i] + mean_global_con[comparison[1]][i]))
             # Matrix differences
             subj_dif = subj_matrices_no_std[comparison[0]][i] - subj_matrices_no_std[comparison[1]][i]
             if standarize_normalize_con == 'std':
