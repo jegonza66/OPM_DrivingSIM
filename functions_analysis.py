@@ -3,6 +3,8 @@ import numpy as np
 import os
 import setup
 from setup import exp_info
+import paths
+
 
 exp_info = setup.exp_info()
 
@@ -46,7 +48,7 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         if 'CF' == epoch_id:
             # Get task onset times
             drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.exp_times['cf_start'] + drive_onset_time]
+            onset_times = [subject.exp_times['cf_start'] + drive_onset_time - meg_data.first_time]
             onset_description = ['CF_onset'] * len(onset_times)
             task_duration = [exp_info.DA_duration] * len(onset_times)
 
@@ -70,7 +72,7 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
             # drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
             # onset_times = [time + drive_onset_time for time in subject.da_times['DA times']]
             drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.da_times['DA times'][0] + drive_onset_time]
+            onset_times = [subject.da_times['DA times'][0] + drive_onset_time - meg_data.first_time]
 
             onset_description = ['DA_onset'] * len(onset_times)
             task_duration = [exp_info.DA_duration] * len(onset_times)
@@ -93,7 +95,7 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         elif 'baseline' == epoch_id:  # Baseline is from drive start to cf start
             # Get task onset times as Excel times + 'drive' annotation time
             drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [drive_onset_time]
+            onset_times = [drive_onset_time  - meg_data.first_time]
 
             onset_description = ['drive_onset'] * len(onset_times)
             task_duration = [subject.exp_times['cf_start']] * len(onset_times)  # cf time in excel file is relative to drive start.
@@ -185,8 +187,8 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
         reject = dict(mag=subject.params.reject_amp)
 
     # Epoch data
-    epochs = mne.Epochs(raw=meg_data, events=events, event_id=events_id, tmin=tmin, tmax=tmax, reject=reject,
-                        event_repeated='drop', metadata=metadata, preload=True, baseline=baseline)
+    epochs = mne.Epochs(raw=meg_data, events=events, event_id=events_id, tmin=tmin, tmax=tmax, reject=None,
+                        event_repeated='drop', metadata=metadata, preload=True, baseline=baseline, reject_by_annotation=False)
     # Drop bad epochs
     # epochs.drop_bad()
 
@@ -197,3 +199,73 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
         epochs.save(epochs_save_path + epochs_data_fname, overwrite=True)
 
     return epochs, events
+
+
+def annotate_bad_intervals(meg_data, data_fname, sds=4, save_data=True):
+
+    # 1. Get the channel data as a NumPy array
+    data = meg_data.get_data()  # Shape: (n_channels, n_times)
+
+    # 2. Calculate the mean and standard deviation per channel
+    mean_per_channel = np.mean(data, axis=1)  # Mean across time
+    std_per_channel = np.std(data, axis=1)  # Standard deviation across time
+
+    # 3. Define thresholds of 3 standard deviations
+    lower_threshold = mean_per_channel - sds * std_per_channel
+    upper_threshold = mean_per_channel + sds * std_per_channel
+
+    # 4. Identify intervals where the signal exceeds the thresholds
+    bad_segments = []
+    sfreq = meg_data.info['sfreq']  # Sampling frequency
+
+    for ch_idx, ch_data in enumerate(data):
+        # Find points where the signal is outside the thresholds
+        outliers = (ch_data < lower_threshold[ch_idx]) | (ch_data > upper_threshold[ch_idx])
+
+        # Convert time indices to seconds
+        outlier_times = meg_data.times[outliers]
+
+        if len(outlier_times) > 0:
+            # Group consecutive times into segments
+            diff = np.diff(outlier_times)
+            breaks = np.where(diff > 1 / sfreq * 2)[0]  # Split if gap is larger than 2 samples
+
+            start = outlier_times[0]
+            for break_idx in breaks:
+                end = outlier_times[break_idx]
+                bad_segments.append([start, end - start])  # [start, duration]
+                start = outlier_times[break_idx + 1]
+
+            # Last segment
+            end = outlier_times[-1]
+            bad_segments.append([start, end - start])
+
+    # 5. Create annotations for the "BAD" segments
+    if bad_segments:
+        onsets = [seg[0]  - meg_data.first_time for seg in bad_segments]  # Start times
+        durations = [seg[1] for seg in bad_segments]  # Durations
+        descriptions = ['BAD'] * len(bad_segments)  # "BAD" label
+
+        annotations = mne.Annotations(onset=onsets,
+                                      duration=durations,
+                                      description=descriptions)
+
+        # Get original annotations and substract first time
+        orig_annotations = meg_data.annotations
+        orig_annotations.onset = orig_annotations.onset - meg_data.first_time
+
+        # 6. Add the annotations to the Raw object
+        # Append new annotations to existing ones instead of overwriting
+        if meg_data.annotations:  # Check if there are existing annotations
+            meg_data.set_annotations(orig_annotations + annotations)
+        else:
+            meg_data.set_annotations(annotations)
+
+    # 7. (Optional) Save the data with annotations
+    if save_data:
+        print('Saving filtered data')
+        # Save MEG
+        os.makedirs(paths.ica_annot_path, exist_ok=True)
+        meg_data.save(paths.ica_annot_path + data_fname, overwrite=True)
+
+    return meg_data, bad_segments
