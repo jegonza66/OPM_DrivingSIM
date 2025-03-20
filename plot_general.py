@@ -1162,3 +1162,29 @@ def add_task_lines(y_text, fontsize=10, color='white', ax=None):
     for x_t, t_t in zip(text_times, x_conditions):
         plt.text(x_t, y_text, t_t, color=color, fontsize=fontsize, ha='center',
                  va='center', fontweight='bold')
+
+
+def bad_segments(meg_data, bad_segments, sds):
+    fig, ax = plt.subplots(figsize=(12, 2))
+
+    # Plot BAD spans
+    for seg in bad_segments:
+        ax.axvspan(seg[0], seg[0] + seg[1], color='red', alpha=0.3, label='BAD')
+
+    # Customize the plot
+    ax.set_xlim(meg_data.times[0], meg_data.times[-1])  # Set x-axis to full time range
+    ax.set_ylim(0, 1)  # Arbitrary y-axis range since we're only showing spans
+    ax.set_yticks([])  # Remove y-axis ticks since no signal is plotted
+    ax.set_xlabel('Time (s)')
+    ax.set_title(f'BAD Annotations Across All Channels {sds} SD', fontsize=14)
+    ax.grid(True, axis='x')
+
+    # Remove duplicate labels in legend (if any)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(handles[:1], labels[:1], loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+
+    return fig
