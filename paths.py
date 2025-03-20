@@ -28,7 +28,13 @@ os.makedirs(filtered_path_raw, exist_ok=True)
 filtered_path_ica = main_path + 'Save/Filtered_Data_ICA/'
 os.makedirs(filtered_path_ica, exist_ok=True)
 
+filtered_path_ica_annot = main_path + 'Save/Filtered_Data_ICA_annot/'
+os.makedirs(filtered_path_ica, exist_ok=True)
+
 ica_path = main_path + 'Save/ICA_Data/'
+os.makedirs(ica_path, exist_ok=True)
+
+ica_annot_path = main_path + 'Save/ICA_Data_annot/'
 os.makedirs(ica_path, exist_ok=True)
 
 plots_path = main_path + 'Plots/'
