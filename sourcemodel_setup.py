@@ -13,12 +13,10 @@ exp_info = setup.exp_info()
 task = 'DA'
 # Define surface or volume source space
 surf_vol = 'surface'
-use_ica_data = True
 force_fsaverage = False
 ico = 4
 spacing = 10.
 pick_ori = None
-high_freq = True
 depth = None
 
 # Define Subjects_dir as Freesurfer output folder
@@ -36,11 +34,7 @@ dig_path = paths.opt_path
 for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     if subject_id != 'fsaverage':
-        if high_freq:
-            meg_data = load.filtered_data(subject_id=subject_id, task=task, band_id='HGamma', save_data=False)
-        else:
-            meg_data = load.ica_data(subject_id=subject_id, task=task)
-        data_type = 'ICA'
+        meg_data = load.ica_data(subject_id=subject_id, task=task)
 
         if force_fsaverage:
             subject_code = 'fsaverage'
