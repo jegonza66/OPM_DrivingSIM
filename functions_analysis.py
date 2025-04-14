@@ -201,7 +201,7 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
     return epochs, events
 
 
-def annotate_bad_intervals(meg_data, data_fname, sds=4, save_data=True):
+def annotate_bad_intervals(meg_data, data_fname, sds=3, save_data=True):
 
     # 1. Get the channel data as a NumPy array
     data = meg_data.get_data()  # Shape: (n_channels, n_times)

@@ -108,10 +108,14 @@ def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', prel
         filtered_path = paths.filtered_path_ica + f'{band_id}/'
     elif data_type == 'ICA_annot':
         filtered_path = paths.filtered_path_ica_annot + f'{band_id}/'
+    elif data_type == 'tsss':
+        filtered_path = paths.filtered_path_tsss + f'{band_id}/'
+    elif data_type == 'tsss_annot':
+        filtered_path = paths.filtered_path_tsss_annot + f'{band_id}/'
     elif data_type == 'RAW':
         filtered_path = paths.filtered_path_raw + f'{band_id}/'
     else:
-        raise ValueError(f'Invalid data_type. Should be either ICA, ICA_annot or RAW. Got {data_type} instead')
+        raise ValueError(f'Invalid data_type. Should be either ICA, ICA_annot tsss, tsss_annot or RAW. Got {data_type} instead')
 
     filtered_meg_data_fname = f'Subject_{subject_id}_method_{method}_meg.fif'
 
@@ -125,12 +129,7 @@ def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', prel
         print(f'No previous filtered data found for subject {subject_id} in band {band_id}.\n'
               f'Filtering data...')
 
-        if data_type == 'ICA':
-            meg_data = ica_data(subject_id=subject_id, task=task, preload=True)
-        elif data_type == 'ICA_annot':
-            meg_data = ica_annot_data(subject_id=subject_id, task=task, preload=True)
-        elif data_type == 'RAW':
-            meg_data = preproc_meg_data(subject_id=subject_id, task=task, preload=True)
+        meg_data = meg_type(subject_id=subject_id, task=task, data_type=data_type, preload=preload)
 
         l_freq, h_freq = functions_general.get_freq_band(band_id)
         if method:
@@ -189,16 +188,82 @@ def ica_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
     return annot_data
 
 
+def tsss_raw_data(subject_id, task, preload=True):
+
+    # ICA data path
+    data_path = paths.tsss_raw_path + f'{subject_id}_{task}_raw_tsss_meg.fif'
+
+    # Try to load ica data
+    try:
+        print(f'Loading TSSS data for subject {subject_id}')
+        # Load data
+        meg_data = mne.io.read_raw_fif(data_path, preload=preload)
+    except:
+        raise ValueError(f'No previous data found for subject {subject_id} in {data_path}')
+
+    return meg_data
+
+
+def tsss_raw_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
+
+    # ICA data path
+    data_fname =  f'{subject_id}_{task}_raw_tsss_meg_annot_{sds}.fif'
+
+    # Try to load ica data
+    try:
+        print(f'Loading data for subject {subject_id}')
+        # Load data
+        annot_data = mne.io.read_raw_fif(paths.tsss_raw_annot_path + data_fname, preload=preload)
+    except:
+        print(f'No previous tsss annotated data found for subject {subject_id} in {paths.tsss_raw_annot_path + data_fname}')
+        print(f'Running tsss and annotating data with default parameters {sds} SD...')
+
+        # Load ICA data
+        meg_data = tsss_raw_data(subject_id=subject_id, task=task, preload=True)
+
+        # Annotate bad segments as per default parameters
+        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, sds=sds, save_data=save_data)
+
+        # Plot bad segments
+        # fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
+
+    return annot_data
+
+
 def meg(subject_id, task, data_type='ICA', band_id=None, filter_sensors=True, filter_method='iir', preload=True, save_data=True):
 
     if band_id and filter_sensors:
         meg_data = filtered_data(subject_id=subject_id, task=task, data_type=data_type, band_id=band_id,
                                  save_data=save_data, method=filter_method)
     else:
-        meg_data = ica_data(subject_id=subject_id, task=task, preload=preload)
+        meg_data = meg_type(subject_id=subject_id, task=task, data_type=data_type, preload=preload)
 
     return meg_data
 
+
+def meg_type(subject_id, task, data_type='ICA', preload=True):
+    """
+    Load MEG data for a given subject, task and data type.
+    :param subject_id:
+    :param task:
+    :param data_type:
+    :param preload:
+    :return:
+    """
+    if data_type == 'ICA':
+        meg_data = ica_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'ICA_annot':
+        meg_data = ica_annot_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'tsss':
+        meg_data = tsss_raw_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'tsss_annot':
+        meg_data = tsss_raw_annot_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'RAW':
+        meg_data = preproc_meg_data(subject_id=subject_id, task=task, preload=preload)
+    else:
+        raise ValueError(
+            f'Invalid data_type. Should be either ICA, ICA_annot, tsss_raw, tsss_raw_annot or RAW. Got {data_type} instead')
+    return meg_data
 
 def time_frequency_range(file_path, l_freq, h_freq):
 
