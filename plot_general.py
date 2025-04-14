@@ -840,7 +840,7 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
             save.fig(fig=fig, path=fig_path, fname=fname)
 
 
-def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=False, fig_path=None, fname='matrix'):
+def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, n_ticks=5, save_fig=False, fig_path=None, fname='matrix'):
 
     # Sanity check
     if save_fig and (not fig_path):
@@ -865,13 +865,12 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=Fa
 
     # Reorder the connectivity matrix and labels
     sorted_matrix = adjacency_matrix[sorted_indices, :][:, sorted_indices]
-    sorted_labels = [label_names[i] for i in sorted_indices]  # Get labels in sorted order
+    sorted_labels = np.array([label_names[i] for i in sorted_indices])  # Get labels in sorted order
 
     # # Make adjacency matrix sorted from frontal to posterior
     # sort = np.argsort(label_ypos)  # Get sorted indexes based on regions anterior-posterior order
     # sorted_matrix = adjacency_matrix[sort[::-1]]  # Sort on one axis
     # sorted_matrix = sorted_matrix[:, sort[::-1]]  # Apply same sort on second axis
-    #
     # sorted_labels = [label_names[i] for i in sort][::-1]  # Get labels in sorted order
 
     # Get min and max from data
@@ -885,8 +884,19 @@ def plot_con_matrix(subject, labels, adjacency_matrix, subject_code, save_fig=Fa
     # im = plt.imshow(sorted_matrix, vmin=vmin, vmax=vmax)
     fig.colorbar(im)
 
+    # ax = plt.gca()
+    # n_ticks = 5
+    # tick_positions = np.linspace(0, len(sorted_labels) - 1, n_ticks, dtype=int)
+    # tick_labels = sorted_labels[tick_positions]  # Subset of labels
+
     ax = plt.gca()
-    ax.set_yticklabels(sorted_labels)
+    left_ticks = np.linspace(0, (n_ticks - 1) * len(sorted_labels) / 2 / n_ticks, n_ticks, dtype=int)
+    right_ticks = left_ticks + int(len(sorted_labels) / 2)
+    tick_positions = np.concatenate([left_ticks, right_ticks])
+    tick_labels = sorted_labels[tick_positions]  # Subset of labels
+
+    ax.set_yticks(tick_positions)  # Set only 7 tick positions
+    ax.set_yticklabels(tick_labels)
     ax.set_xticklabels([])
 
     plt.suptitle('')
