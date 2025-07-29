@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.signal import butter, lfilter
 
 
 def find_nearest(array, values):
@@ -152,6 +153,14 @@ def flatten_list(ls):
     return flat_list
 
 
+
+def butter_bandpass_filter(data, band_id, sfreq=1200, order=3):
+    l_freq, h_freq = get_freq_band(band_id=band_id)
+    b, a = butter(N=order, Wn=[l_freq, h_freq], fs=sfreq, btype='band')
+    y = lfilter(b, a, data)
+    return y
+
+
 def get_freq_band(band_id):
     '''
     :param band_id: str ('Delta/Theta/Alpha/Beta/Gamma
@@ -241,18 +250,18 @@ def get_time_lims(subject, epoch_id, plot_edge=0, map=None):
             map = dict(DA={'tmin': 0, 'tmax': subject.exp_times['da_end'] - subject.exp_times['da_start'], 'plot_xlim': [-1, 5.5]},
                        CF={'tmin': 0, 'tmax': subject.exp_times['cf_end'] - subject.exp_times['cf_start'], 'plot_xlim': [-1, 5.5]},
                        baseline={'tmin': 0, 'tmax': subject.exp_times['cf_end'] - subject.exp_times['cf_start'], 'plot_xlim': [-1, 5.5]},
-                       sac={'tmin': -0.3, 'tmax': 0.6, 'plot_xlim': [-0.3 + plot_edge, 0.6 - plot_edge]},
-                       fix={'tmin': -0.3, 'tmax': 0.6, 'plot_xlim': [-0.3 + plot_edge, 0.6 - plot_edge]},
+                       saccade={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
+                       fixation={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
                        )
 
-            if 'fix' in epoch_id:
-                tmin = map['fix']['tmin']
-                tmax = map['fix']['tmax']
-                plot_xlim = map['fix']['plot_xlim']
-            elif 'sac' in epoch_id:
-                tmin = map['sac']['tmin']
-                tmax = map['sac']['tmax']
-                plot_xlim = map['sac']['plot_xlim']
+            if 'fixation' in epoch_id:
+                tmin = map['fixation']['tmin']
+                tmax = map['fixation']['tmax']
+                plot_xlim = map['fixation']['plot_xlim']
+            elif 'sacadec' in epoch_id:
+                tmin = map['saccade']['tmin']
+                tmax = map['saccade']['tmax']
+                plot_xlim = map['saccade']['plot_xlim']
             else:
                 for key in map.keys():
                     if key in epoch_id:
@@ -274,9 +283,9 @@ def get_baseline_duration(epoch_id, tmin, tmax, plot_edge=None, map=None):
         plot_baseline = (map[epoch_id]['plot_baseline'][0], map[epoch_id]['plot_baseline'][1])
 
     else:
-        if 'sac' in epoch_id:
+        if 'saccade' in epoch_id:
             baseline = (tmin, 0)
-        elif 'fix' in epoch_id:
+        elif 'fixation' in epoch_id:
             baseline = (tmin, -0.05)
         else:
             print(f'Using default baseline from tmin: {tmin} to 0')
@@ -305,3 +314,40 @@ def get_baseline_duration(epoch_id, tmin, tmax, plot_edge=None, map=None):
         plot_baseline = (tmin, tmin)
 
     return baseline, plot_baseline
+
+
+
+def pick_chs(chs_id, info):
+    '''
+    :param chs_id: 'mag'/'LR'/'parietal/occipital/'frontal'/sac_chs/parietal+'
+        String identifying the channels to pick. can be any region or combination of regions selecting also hemisphere.
+        Regions and hemispheres should be indicated separated by "_" (parietal_occipital_L).
+    :param info: class attribute
+        info attribute from the evoked data.
+    :return: picks: list
+        List of chosen channel names.
+    '''
+
+    if chs_id == 'mag':
+        picks = [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if ch_type == 'mag']
+
+    else:
+        ids = chs_id.split('_')
+        picks = []
+        for id in ids:
+            if id == 'parietal':
+                picks += [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name.startswith('P'))]
+            elif id == 'occipital':
+                picks += [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name.startswith('O'))]
+            elif id == 'frontal':
+                picks += [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name.startswith('F'))]
+            elif id == 'temporal':
+                picks += [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name.startswith('T'))]
+
+            # Subset from picked chanels
+            elif id == 'L':
+                picks = [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name[1] == 'L')]
+            elif id == 'R':
+                picks = [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name[1] == 'R')]
+
+    return picks
