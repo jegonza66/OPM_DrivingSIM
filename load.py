@@ -7,6 +7,8 @@ import pickle
 import mne
 import functions_general
 import glob
+import plot_general
+
 
 
 def config(path, fname):
@@ -126,7 +128,7 @@ def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', prel
         filtered_data = mne.io.read_raw_fif(filtered_path + filtered_meg_data_fname, preload=preload)
 
     except:
-        print(f'No previous filtered data found for subject {subject_id} in band {band_id}.\n'
+        print(f'No previous filtered {data_type} data found for subject {subject_id} in band {band_id}.\n'
               f'Filtering data...')
 
         meg_data = meg_type(subject_id=subject_id, task=task, data_type=data_type, preload=preload)
@@ -162,7 +164,7 @@ def ica_data(subject_id, task, preload=True):
     return meg_data
 
 
-def ica_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
+def ica_annot_data(subject_id, task, sds=3, preload=True, save_data=True, plot_bad_segments=False):
 
     # ICA data path
     data_fname =  f'{task}_{subject_id}_raw_ica_hfc_meg_annot_{sds}.fif'
@@ -180,10 +182,11 @@ def ica_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
         meg_data = ica_data(subject_id=subject_id, task=task, preload=True)
 
         # Annotate bad segments as per default parameters
-        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, sds=sds, save_data=save_data)
+        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, data_type='ICA', sds=sds, save_data=save_data)
 
         # Plot bad segments
-        # fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
+        if plot_bad_segments:
+            fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
 
     return annot_data
 
@@ -204,7 +207,7 @@ def tsss_raw_data(subject_id, task, preload=True):
     return meg_data
 
 
-def tsss_raw_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
+def tsss_raw_annot_data(subject_id, task, sds=3, preload=True, save_data=True, plot_bad_segments=False):
 
     # ICA data path
     data_fname =  f'{subject_id}_{task}_raw_tsss_meg_annot_{sds}.fif'
@@ -218,19 +221,26 @@ def tsss_raw_annot_data(subject_id, task, sds=4, preload=True, save_data=True):
         print(f'No previous tsss annotated data found for subject {subject_id} in {paths.tsss_raw_annot_path + data_fname}')
         print(f'Running tsss and annotating data with default parameters {sds} SD...')
 
-        # Load ICA data
+        # Load TSSS data
         meg_data = tsss_raw_data(subject_id=subject_id, task=task, preload=True)
 
         # Annotate bad segments as per default parameters
-        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, sds=sds, save_data=save_data)
+        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, data_type='tsss', sds=sds, save_data=save_data)
 
         # Plot bad segments
-        # fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
+        if plot_bad_segments:
+            fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
 
     return annot_data
 
 
-def meg(subject_id, task, data_type='ICA', band_id=None, filter_sensors=True, filter_method='iir', preload=True, save_data=True):
+def meg(subject_id, meg_params, task='DA', preload=True, save_data=True):
+
+    # Define parameters from meg_params
+    band_id = meg_params.get('band_id', None)
+    data_type = meg_params.get('data_type', None)
+    filter_sensors = meg_params.get('filter_sensors', None)
+    filter_method = meg_params.get('filter_method', None)
 
     if band_id and filter_sensors:
         meg_data = filtered_data(subject_id=subject_id, task=task, data_type=data_type, band_id=band_id,
