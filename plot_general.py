@@ -1,6 +1,7 @@
 import os
-import matplotlib.pyplot as plt
 import matplotlib
+matplotlib.use('Qt5Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 import paths
 import save
@@ -754,21 +755,21 @@ def connectome(subject, labels, adjacency_matrix, subject_code, save_fig=False, 
         if connections_num > 1:
             if edge_thresholddirection == 'absabove':
                 edge_threshold = sorted(np.sort(np.abs(adjacency_matrix), axis=None))[-int(connections_num * 2) - 1]
-                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) > edge_threshold]
+                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) >= edge_threshold]
             elif edge_thresholddirection == 'above':
                 edge_threshold = sorted(np.sort(adjacency_matrix, axis=None))[-int(connections_num * 2) - 1]
-                retained_edges = adjacency_matrix[adjacency_matrix > edge_threshold]
+                retained_edges = adjacency_matrix[adjacency_matrix >= edge_threshold]
             elif edge_thresholddirection == 'below':
                 edge_threshold = sorted(np.sort(adjacency_matrix, axis=None))[int(connections_num * 2) + 1]
-                retained_edges = adjacency_matrix[adjacency_matrix < edge_threshold]
+                retained_edges = adjacency_matrix[adjacency_matrix <= edge_threshold]
         else:
             edge_threshold = connections_num
             if edge_thresholddirection == 'absabove':
-                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) > edge_threshold]
+                retained_edges = adjacency_matrix[np.abs(adjacency_matrix) >= edge_threshold]
             elif edge_thresholddirection == 'above':
-                retained_edges = adjacency_matrix[adjacency_matrix > edge_threshold]
+                retained_edges = adjacency_matrix[adjacency_matrix >= edge_threshold]
             elif edge_thresholddirection == 'below':
-                retained_edges = adjacency_matrix[adjacency_matrix < edge_threshold]
+                retained_edges = adjacency_matrix[adjacency_matrix <= edge_threshold]
 
         # Determine vmin and vmax from retained edges
         # Option 1: Signed values (for diverging colormap)
@@ -951,8 +952,8 @@ def connectivity_strength(subject, subject_code, con, src, labels, surf_vol, sub
         brain.save_image(filename=fig_path + '/svg/' + fname + '.pdf')
 
 
-def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsaverage, source_estimation, save_fig, fig_path, fname, surface='pial', hemi='split', views='lateral',
-            alpha=0.75, mask_negatives=False, time_label='auto', save_vid=True, positive_cbar=None, clim=None):
+def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsaverage, source_estimation, save_fig=False, fig_path=None, fname=None, surface='pial', hemi='split', views='lateral',
+            alpha=0.75, mask_negatives=False, time_label='auto', save_vid=False, positive_cbar=None, clim=None):
 
     # Close all plot figures
     try:
@@ -1174,8 +1175,9 @@ def add_task_lines(y_text, fontsize=10, color='white', ax=None):
                  va='center', fontweight='bold')
 
 
-def bad_segments(meg_data, bad_segments, sds):
-    fig, ax = plt.subplots(figsize=(12, 2))
+def bad_segments(meg_data, bad_segments, sds, ax, fig):
+    if not ax:
+        fig, ax = plt.subplots(figsize=(12, 2))
 
     # Plot BAD spans
     for seg in bad_segments:
