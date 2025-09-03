@@ -69,7 +69,7 @@ class exp_info:
                              '13703',
                              '14446',
                              '15463',
-                             '15519',
+                             # '15519', Too many blinks, remodnav error
                              '16589',
                              '16659'
                              ]
@@ -94,28 +94,19 @@ class exp_info:
         self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in self.subjects_ids}
 
         # Distance to the screen during the experiment (Fake info)
-        self.screen_distance = {'11074': 68,
-                                '11766': 68,
-                                '13229': 68,
-                                '13703': 68,
-                                '14446': 68,
-                                '15463': 68,
-                                '15519': 68,
-                                '16589': 68,
-                                '16659': 68
+        self.screen_distance = {'11074': 75,
+                                '11766': 78,
+                                '13229': 75,
+                                '13703': 75,
+                                '14446': 75,
+                                '15463': 75,
+                                '15519': 75,
+                                '16589': 75,
+                                '16659': 75
                                 }
 
-        # Screen width (Fake info)
-        self.screen_size = {'11074': 34,
-                            '11766': 34,
-                            '13229': 34,
-                            '13703': 34,
-                            '14446': 34,
-                            '15463': 34,
-                            '15519': 34,
-                            '16589': 34,
-                            '16659': 34
-                            }
+        # Screen width
+        self.screen_size = 56.8
 
         # Subjects groups (Fake info)
         self.group = {'11074': 'counterbalanced',
@@ -145,15 +136,15 @@ class exp_info:
                             }
 
         # ET channels name [Gaze x, Gaze y, Pupils] (Fake info)
-        self.et_channel_names = {'11074': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '11766': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '13229': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '13703': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '14446': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '15463': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '15519': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '16589': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123'],
-                                 '16659': ['UADC013-4123', 'UADC015-4123', 'UADC016-4123']
+        self.et_channel_names = {'11074': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '11766': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '13229': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '13703': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '14446': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '15463': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '15519': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '16589': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '16659': ['meg_x', 'meg_y', 'meg_pupil'],
                                  }
 
         # Trigger channel name (Fake info)
@@ -373,6 +364,24 @@ class subject():
 
         return meg_data
 
+    # MEG data
+    def load_processed_meg_data(self, preload=False):
+        """
+        Processed MEG data for parent subject as raw instance of MNE.
+        """
+
+        # Subject preprocessed data path
+        file_path = pathlib.Path(os.path.join(paths.processed_path, self.subject_id, f'Subject_{self.subject_id}_meg.fif'))
+
+        # Try to load preprocessed data
+        try:
+            print('\nLoading Preprocessed MEG data')
+            meg_data = mne.io.read_raw_fif(file_path, preload=preload)
+        except:
+            raise ValueError(f'No previous preprocessed data found for subject {self.subject_id}')
+
+        return meg_data
+
     # ICA MEG data
     def load_ica_meg_data(self, preload=False):
         """
@@ -408,3 +417,87 @@ class subject():
         df = pd.read_csv(bh_file)
 
         return df
+
+    # Fixations data
+    def fixations(self):
+        """
+        Fixations data for parent subject as pandas DataFrame.
+        Loads the fixations CSV file saved during preprocessing.
+
+        Returns
+        -------
+        fixations : pandas.DataFrame
+            DataFrame containing fixation events with columns like onset, duration,
+            amplitude, mean_x, mean_y, pupil size, etc.
+        """
+
+        # Subject fixations data path
+        file_path = pathlib.Path(os.path.join(paths.processed_path, self.subject_id, 'fixations.csv'))
+
+        # Try to load fixations data
+        try:
+            print(f'Loading fixations DataFrame for subject {self.subject_id}')
+            fixations_data = pd.read_csv(file_path)
+        except FileNotFoundError:
+            raise ValueError(f'No fixations DataFrame found for subject {self.subject_id}. '
+                           f'Expected file: {file_path}')
+        except Exception as e:
+            raise ValueError(f'Error loading fixations DataFrame for subject {self.subject_id}: {e}')
+
+        return fixations_data
+
+    # Saccades data
+    def saccades(self):
+        """
+        Saccades data for parent subject as pandas DataFrame.
+        Loads the saccades CSV file saved during preprocessing.
+
+        Returns
+        -------
+        saccades : pandas.DataFrame
+            DataFrame containing saccade events with columns like onset, duration,
+            amplitude, peak_vel, n_sac, delay, deg, dir, etc.
+        """
+
+        # Subject saccades data path
+        file_path = pathlib.Path(os.path.join(paths.processed_path, self.subject_id, 'saccades.csv'))
+
+        # Try to load saccades data
+        try:
+            print(f'Loading saccades DataFrame for subject {self.subject_id}')
+            saccades_data = pd.read_csv(file_path)
+        except FileNotFoundError:
+            raise ValueError(f'No saccades DataFrame found for subject {self.subject_id}. '
+                           f'Expected file: {file_path}')
+        except Exception as e:
+            raise ValueError(f'Error loading saccades DataFrame for subject {self.subject_id}: {e}')
+
+        return saccades_data
+
+    # Pursuits data
+    def pursuits(self):
+        """
+        Pursuits data for parent subject as pandas DataFrame.
+        Loads the pursuits CSV file saved during preprocessing.
+
+        Returns
+        -------
+        pursuits : pandas.DataFrame
+            DataFrame containing pursuit events with columns like onset, duration,
+            amplitude, etc.
+        """
+
+        # Subject pursuits data path
+        file_path = pathlib.Path(os.path.join(paths.processed_path, self.subject_id, 'pursuits.csv'))
+
+        # Try to load pursuits data
+        try:
+            print(f'Loading pursuits DataFrame for subject {self.subject_id}')
+            pursuits_data = pd.read_csv(file_path)
+        except FileNotFoundError:
+            raise ValueError(f'No pursuits DataFrame found for subject {self.subject_id}. '
+                           f'Expected file: {file_path}')
+        except Exception as e:
+            raise ValueError(f'Error loading pursuits DataFrame for subject {self.subject_id}: {e}')
+
+        return pursuits_data
