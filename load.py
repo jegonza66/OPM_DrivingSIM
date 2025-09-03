@@ -103,6 +103,52 @@ def preproc_meg_data(subject_id, task, preload=False):
 
     return meg_data
 
+def processed_data(subject_id, task, preload=False):
+    """
+    Processed MEG data for subject as raw instance of MNE.
+    """
+
+    # Subject preprocessed data path
+    file_path = pathlib.Path(os.path.join(paths.processed_path, f'{subject_id}/{task}_{subject_id}_meg.fif'))
+
+    # Try to load preprocessed data
+    try:
+        print('\nLoading Preprocessed MEG data')
+        meg_data = mne.io.read_raw_fif(file_path, preload=preload)
+    except:
+        raise ValueError(f'No previous processed data found for subject {subject_id} in {file_path}')
+
+    return meg_data
+
+
+def proccesed_data_annot(subject_id, task, sds=3, preload=False, save_data=True, plot_bad_segments=False):
+    """
+    Processed MEG data for subject as raw instance of MNE.
+    """
+    # Processed data path
+    data_fname = f'{task}_{subject_id}_meg_annot_{sds}.fif'
+
+    # Try to load ica data
+    try:
+        print(f'Loading data for subject {subject_id}')
+        # Load data
+        annot_data = mne.io.read_raw_fif(paths.processed_path_annot + data_fname, preload=preload)
+    except:
+        print(f'No previous Processed annotated data found for subject {subject_id} in {paths.processed_path_annot + data_fname}')
+        print(f'Running Processed and annotating data with default parameters {sds} SD...')
+
+        # Load Processed data
+        meg_data = processed_data(subject_id=subject_id, task=task, preload=True)
+
+        # Annotate bad segments as per default parameters
+        annot_data, bad_segments = functions_analysis.annotate_bad_intervals(meg_data, data_fname=data_fname, data_type='processed', sds=sds, save_data=save_data)
+
+        # Plot bad segments
+        if plot_bad_segments:
+            fig = plot_general.bad_segments(meg_data=annot_data, bad_segments=bad_segments, sds=sds)
+
+    return annot_data
+
 
 def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', preload=True, save_data=True):
 
@@ -110,6 +156,10 @@ def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', prel
         filtered_path = paths.filtered_path_ica + f'{band_id}/'
     elif data_type == 'ICA_annot':
         filtered_path = paths.filtered_path_ica_annot + f'{band_id}/'
+    elif data_type == 'processed':
+        filtered_path = paths.filtered_path_processed + f'{band_id}/'
+    elif data_type == 'processed_annot':
+        filtered_path = paths.filtered_path_processed_annot + f'{band_id}/'
     elif data_type == 'tsss':
         filtered_path = paths.filtered_path_tsss + f'{band_id}/'
     elif data_type == 'tsss_annot':
@@ -251,7 +301,7 @@ def meg(subject_id, meg_params, task='DA', preload=True, save_data=True):
     return meg_data
 
 
-def meg_type(subject_id, task, data_type='ICA', preload=True):
+def meg_type(subject_id, task, data_type='processed', preload=True):
     """
     Load MEG data for a given subject, task and data type.
     :param subject_id:
@@ -264,6 +314,10 @@ def meg_type(subject_id, task, data_type='ICA', preload=True):
         meg_data = ica_data(subject_id=subject_id, task=task, preload=preload)
     elif data_type == 'ICA_annot':
         meg_data = ica_annot_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'processed':
+        meg_data = processed_data(subject_id=subject_id, task=task, preload=preload)
+    elif data_type == 'processed_annot':
+        meg_data = proccesed_data_annot(subject_id=subject_id, task=task, preload=preload)
     elif data_type == 'tsss':
         meg_data = tsss_raw_data(subject_id=subject_id, task=task, preload=preload)
     elif data_type == 'tsss_annot':
@@ -272,7 +326,7 @@ def meg_type(subject_id, task, data_type='ICA', preload=True):
         meg_data = preproc_meg_data(subject_id=subject_id, task=task, preload=preload)
     else:
         raise ValueError(
-            f'Invalid data_type. Should be either ICA, ICA_annot, tsss_raw, tsss_raw_annot or RAW. Got {data_type} instead')
+            f'Invalid data_type. Should be either ICA, ICA_annot, processed, processed_annot, tsss_raw, tsss_raw_annot or RAW. Got {data_type} instead')
     return meg_data
 
 def time_frequency_range(file_path, l_freq, h_freq):
@@ -297,3 +351,32 @@ def time_frequency_range(file_path, l_freq, h_freq):
         raise ValueError('No file found with desired frequency range')
 
     return time_frequency
+
+
+def forward_model(sources_path_subject, subject_code, chs_id, source_params):
+
+    if source_params['surf_vol'] == 'volume':
+        fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_volume_ico{source_params['ico']}_{int(source_params['spacing'])}-fwd.fif'
+    elif source_params['surf_vol'] == 'surface':
+        fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_surface_ico{source_params['ico']}-fwd.fif'
+    elif source_params['surf_vol'] == 'mixed':
+        fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_mixed_ico{source_params['ico']}_{int(source_params['spacing'])}-fwd.fif'
+    fwd = mne.read_forward_solution(fname_fwd)
+
+    return fwd
+
+
+def source_model(sources_path_subject, subject_code, source_params):
+
+    # Get Source space for default subject
+    if source_params['surf_vol'] == 'volume':
+        fname_src = sources_path_subject + f'/fsaverage_volume_ico{source_params['ico']}_{int(source_params['spacing'])}-src.fif'
+    elif source_params['surf_vol'] == 'surface':
+        fname_src = sources_path_subject + f'/fsaverage_surface_ico{source_params['ico']}-src.fif'
+    elif source_params['surf_vol'] == 'mixed':
+        fname_src = sources_path_subject + f'/fsaverage_mixed_ico{source_params['ico']}_{int(source_params['spacing'])}-src.fif'
+
+    src = mne.read_source_spaces(fname_src)
+
+    return src
+
