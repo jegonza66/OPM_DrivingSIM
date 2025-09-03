@@ -16,8 +16,6 @@ from scipy.stats import wilcoxon
 from statsmodels.stats.multitest import fdrcorrection
 import itertools
 
-from source_activations import meg_params
-
 # Removing NANs from meg_data
 # meg_data.crop(tmin=0, tmax=meg_data.times[np.where(~np.isnan(meg_data._data[0]))[0][-1]])
 # meg_data.save(paths.ica_path + f'{task}_{subject_id}_raw_ica_hfc_meg.fif', overwrite=True)
@@ -33,11 +31,11 @@ save_data = True
 
 # Trial parameters
 task = 'DA'
-epoch_ids = ['fixation']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
+epoch_ids = ['saccade']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
 reject = False  # Peak to peak amplitude epoch rejection
 
-meg_params = {'band_id': None,
-              'data_type': 'ICA_annot'},  # 'RAW' / 'ICA' / 'ICA_annot' / 'tsss_annot'}
+meg_params = {'band_id': 'Beta',
+              'data_type': 'ICA_annot'}  # 'RAW' / 'ICA' / 'ICA_annot' / 'tsss_annot'}
 
 # Source estimation parameters
 force_fsaverage = False  # Force all participants to use fsaverage regardless of their MRI data
