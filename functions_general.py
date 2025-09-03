@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.signal import butter, lfilter
+import mne
 
 
 def find_nearest(array, values):
@@ -250,18 +251,19 @@ def get_time_lims(subject, epoch_id, plot_edge=0, map=None):
             map = dict(DA={'tmin': 0, 'tmax': subject.exp_times['da_end'] - subject.exp_times['da_start'], 'plot_xlim': [-1, 5.5]},
                        CF={'tmin': 0, 'tmax': subject.exp_times['cf_end'] - subject.exp_times['cf_start'], 'plot_xlim': [-1, 5.5]},
                        baseline={'tmin': 0, 'tmax': subject.exp_times['cf_end'] - subject.exp_times['cf_start'], 'plot_xlim': [-1, 5.5]},
-                       saccade={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
-                       fixation={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
+                       sac={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
+                       fix={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
+                       pur={'tmin': -0.2, 'tmax': 0.5, 'plot_xlim': [-0.2 + plot_edge, 0.5 - plot_edge]},
                        )
 
-            if 'fixation' in epoch_id:
-                tmin = map['fixation']['tmin']
-                tmax = map['fixation']['tmax']
-                plot_xlim = map['fixation']['plot_xlim']
-            elif 'sacadec' in epoch_id:
-                tmin = map['saccade']['tmin']
-                tmax = map['saccade']['tmax']
-                plot_xlim = map['saccade']['plot_xlim']
+            if 'fix' in epoch_id:
+                tmin = map['fix']['tmin']
+                tmax = map['fix']['tmax']
+                plot_xlim = map['fix']['plot_xlim']
+            elif 'sac' in epoch_id:
+                tmin = map['sac']['tmin']
+                tmax = map['sac']['tmax']
+                plot_xlim = map['sac']['plot_xlim']
             else:
                 for key in map.keys():
                     if key in epoch_id:
@@ -271,7 +273,7 @@ def get_time_lims(subject, epoch_id, plot_edge=0, map=None):
                         break
                 print(f'Using default time values for {epoch_id}: tmin:{tmin}, tmax: {tmax}, plot lims: {plot_xlim}')
         except:
-            raise ValueError('Epoch id not in default map keys.')
+            raise ValueError(f'Epoch id {epoch_id} not in default map keys {map.keys()}.')
 
     return tmin, tmax, plot_xlim
 
@@ -283,9 +285,9 @@ def get_baseline_duration(epoch_id, tmin, tmax, plot_edge=None, map=None):
         plot_baseline = (map[epoch_id]['plot_baseline'][0], map[epoch_id]['plot_baseline'][1])
 
     else:
-        if 'saccade' in epoch_id:
+        if 'sac' in epoch_id:
             baseline = (tmin, 0)
-        elif 'fixation' in epoch_id:
+        elif 'fix' in epoch_id:
             baseline = (tmin, -0.05)
         else:
             print(f'Using default baseline from tmin: {tmin} to 0')
@@ -350,4 +352,39 @@ def pick_chs(chs_id, info):
             elif id == 'R':
                 picks = [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name[1] == 'R')]
 
+            # Subset from picked chanels
+            elif id == 'z':
+                picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
+                         (ch_type == 'mag' and ch_name.endswith('[Z]'))]
+            elif id == 'x':
+                picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
+                         (ch_type == 'mag' and ch_name.endswith('[X]'))]
+            elif id == 'y':
+                picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
+                         (ch_type == 'mag' and ch_name.endswith('[Y]'))]
+
     return picks
+
+
+def get_stim_channel_names(meg_data):
+    """
+    Get all channel names of type 'stim' from MEG data.
+
+    Parameters
+    ----------
+    meg_data : instance of mne.io.Raw
+        The raw MEG data.
+
+    Returns
+    -------
+    stim_channels : list
+        List of stimulus channel names.
+    """
+    # Get channel names and types
+    ch_names = meg_data.ch_names
+    ch_types = meg_data.get_channel_types()
+
+    # Find stimulus channels
+    stim_channels = [ch_names[i] for i, ch_type in enumerate(ch_types) if ch_type == 'stim']
+
+    return stim_channels
