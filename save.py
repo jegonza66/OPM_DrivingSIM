@@ -17,9 +17,9 @@ def preprocessed_data(raw, et_data_scaled, subject, config):
     :param saccades:
     """
 
-    print('Saving preprocessed data')
+    print('Saving processed data')
     # Path
-    preproc_data_path = paths.preproc_path
+    preproc_data_path = paths.processed_path
     preproc_save_path = preproc_data_path + subject.subject_id + '/'
     os.makedirs(preproc_save_path, exist_ok=True)
 
