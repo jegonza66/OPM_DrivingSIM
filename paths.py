@@ -22,6 +22,18 @@ os.makedirs(save_path, exist_ok=True)
 preproc_path = main_path + 'Save/Preproc_Data/'
 os.makedirs(preproc_path, exist_ok=True)
 
+processed_path = main_path + 'Save/Processed_Data/'
+os.makedirs(processed_path, exist_ok=True)
+
+processed_path_annot = main_path + 'Save/Processed_Data_annot/'
+os.makedirs(processed_path_annot, exist_ok=True)
+
+filtered_path_processed = main_path + 'Save/Filtered_Data_Processed/'
+os.makedirs(filtered_path_processed, exist_ok=True)
+
+filtered_path_processed_annot = main_path + 'Save/Filtered_Data_Processed_annot/'
+os.makedirs(filtered_path_processed_annot, exist_ok=True)
+
 filtered_path_raw = main_path + 'Save/Filtered_Data_RAW/'
 os.makedirs(filtered_path_raw, exist_ok=True)
 
