@@ -30,20 +30,21 @@ else:
 #----- Parameters -----#
 task = 'DA'
 # Trial selection
-trial_params = {'epoch_id': 'saccade',  # use'+' to mix conditions (red+blue)
+trial_params = {'epoch_id': 'fix',  # use'+' to mix conditions (red+blue)
                 'reject': None,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value
+                'evt_from_df': True
                 }
 
 meg_params = {'chs_id': 'mag',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
-              'data_type': 'ICA_annot'
+              'data_type': 'processed_annot'
               }
 
 # TRF parameters
 trf_params = {'input_features': ['fixation', 'saccade'],   # Select features (events)
-              'standarize': True,
+              'standarize': False,
               'fit_power': False,
               'alpha': None,
               'tmin': -0.2,
@@ -51,6 +52,7 @@ trf_params = {'input_features': ['fixation', 'saccade'],   # Select features (ev
               'baseline': (-0.2, -0.05)
               }
 
+# Get frquencies
 l_freq, h_freq = functions_general.get_freq_band(band_id=meg_params['band_id'])
 
 # Compare features
@@ -64,7 +66,7 @@ ico = 4
 spacing = 10.  # Only for volume source estimation
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
 source_power = False
-source_estimation = 'trf'  # 'epo' / 'evk' / 'cov' / 'trf'
+source_estimation = 'evk'  # 'epo' / 'evk' / 'cov' / 'trf'
 visualize_alignment = False
 active_times = None
 
@@ -84,7 +86,7 @@ plot_individuals = True
 plot_ga = True
 
 # Permutations test
-run_permutations_GA = False
+run_permutations_GA = True
 run_permutations_diff = False
 desired_tval = 0.01
 p_threshold = 0.05
@@ -221,12 +223,10 @@ for param in param_values.keys():
             fwd = mne.read_forward_solution(fname_fwd)
             src = fwd['src']
 
-
             # Get epochs and evoked
             try:
                 # Load epochs
                 epochs = mne.read_epochs(epochs_save_path + epochs_data_fname)
-                epochs.pick('mag')
 
                 if source_estimation == 'trf':
                     # Load MEG
@@ -238,8 +238,6 @@ for param in param_values.keys():
                 else:
                     # Define evoked from epochs
                     evoked = epochs.average()
-                    # Pick meg channels for source modeling
-                    evoked.pick('mag')
 
             except:
                 # Load MEG
@@ -251,7 +249,7 @@ for param in param_values.keys():
 
                 else:
                     # Epoch data
-                    epochs, events, onset_times = functions_analysis.epoch_data(subject=subject, epoch_id=run_params['epoch_id'],
+                    epochs, events, onset_times = functions_analysis.epoch_data(subject=subject, epoch_id=run_params['epoch_id'], from_df=trial_params['evt_from_df'],
                                                                                      meg_data=meg_data, tmin=run_params['tmin'], tmax=run_params['tmax'],
                                                                                      baseline=run_params['baseline'], save_data=save_data,
                                                                                      epochs_save_path=epochs_save_path,
@@ -260,16 +258,20 @@ for param in param_values.keys():
                     # Define evoked from epochs
                     evoked = epochs.average()
 
-                    # Pick meg channels for source modeling
-                    evoked.pick('mag')
-                    epochs.pick('mag')
+            # Pick channels
+            picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
+            evoked.pick(picks)
+            epochs.pick(picks)
 
             # --------- Source estimation ---------#
             # Load filter
             if os.path.isfile(sources_path_subject + fname_lcmv):
                 filters = mne.beamformer.read_beamformer(sources_path_subject + fname_lcmv)
             else:
-                meg_data.pick('meg')
+                #  Make filters
+                meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
+                meg_data.pick(picks)
+
                 data_cov = mne.compute_raw_covariance(meg_data)
                 filters = beamformer.make_lcmv(info=meg_data.info, forward=fwd, data_cov=data_cov, reg=0.05, pick_ori=pick_ori)
                 filters.save(fname=sources_path_subject + fname_lcmv, overwrite=True)
@@ -317,8 +319,8 @@ for param in param_values.keys():
 
                     else:
                         stc.data += data
-                    # Divide by epochs number
-                    stc.data /= len(epochs)
+                # Divide by epochs number
+                stc.data /= len(epochs)
 
                 if source_power:
                     # Drop edges due to artifacts from power computation
