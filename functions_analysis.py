@@ -1,5 +1,6 @@
 import mne
 import numpy as np
+import pandas as pd
 import os
 import setup
 from setup import exp_info
@@ -8,11 +9,15 @@ import load
 import save
 import functions_general
 from mne.decoding import ReceptiveField
+from scipy import stats as stats
+from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc
+from mni_to_atlas import AtlasBrowser
+
 
 exp_info = setup.exp_info()
 
 # ---------- Epoch Data ---------- #
-def define_events(subject, meg_data, epoch_id, epoch_keys=None):
+def define_events_from_annot(subject, meg_data, epoch_id, epoch_keys=None):
     """
     Define events based on annotations in MEG data.
 
@@ -43,7 +48,6 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
     """
 
     print('Defining events')
-
     onset_times = None
     if epoch_keys is None:
 
@@ -120,22 +124,81 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         else:
             # Get events from annotations
             events, event_id = mne.events_from_annotations(meg_data, verbose=False)
-            events[:, 0] = events[:, 0] - functions_general.find_nearest(meg_data.times, meg_data.first_time)[0]  # Adjust event times to start from 0
+            # events[:, 0] = events[:, 0] - functions_general.find_nearest(meg_data.times, meg_data.first_time)[0]  # Adjust event times to start from 0
 
             # Get epoch keys from epoch_id
             epoch_keys = epoch_id.split('+')
+
     else:
         # Get events from annotations
-
         events, event_id = mne.events_from_annotations(meg_data, verbose=False)
 
     # Get events and ids matching selection
-    metadata, events, events_id = mne.epochs.make_metadata(events=events, event_id=event_id, row_events=epoch_keys, tmin=0, tmax=0, sfreq=meg_data.info['sfreq'])
+    metadata, events, event_id = mne.epochs.make_metadata(events=events, event_id=event_id, row_events=epoch_keys, tmin=0, tmax=0, sfreq=meg_data.info['sfreq'])
 
-    return metadata, events, events_id, onset_times
+    return metadata, events, event_id, onset_times
 
 
-def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=None, save_data=False, epochs_save_path=None, epochs_data_fname=None):
+def define_events_from_df(subject, meg_data, epoch_id, epoch_keys=None):
+    """
+    Define events based on annotations in MEG data.
+
+    Parameters
+    ----------
+    subject : instance of subect class defined in setup.py
+        The object containing all subject information and parameters.
+    meg_data : instance of mne.io.Raw
+        The raw MEG data.
+    epoch_id : str
+        The identifier for the epoch, which can include multiple sub-ids separated by '+'.
+    epoch_keys : list of str, optional
+        Specific event keys to use. If None, all events matching the epoch_id will be used.
+
+    Returns
+    -------
+    metadata : pandas.DataFrame
+        Metadata for the epochs.
+    events : array, shape (n_events, 3)
+        The events array.
+    events_id : dict
+        The dictionary of event IDs.
+
+    Raises
+    ------
+    ValueError
+        If no valid epoch_ids are provided.
+    """
+
+    print('Defining events')
+    onset_times = None
+    # Get events from annotations
+    events, event_id = mne.events_from_annotations(meg_data, verbose=False)
+
+    if 'fix' in epoch_id:
+        # Load df of events
+        metadata = subject.fixations()
+
+    if 'sac' in epoch_id:
+        # Load df of events
+        metadata = subject.saccades()
+
+    if 'pur' in epoch_id:
+        # Load df of events
+        metadata = subject.pursuits()
+
+    events = np.zeros((len(metadata), 3))
+
+    # Make events array
+    events[:, 0] = round((metadata['onset'] + meg_data.first_time) * meg_data.info['sfreq'], 0)  # Convert seconds to samples
+    events[:, 2] = 1
+    events = events.astype(int)
+
+    event_id = {np.str_(epoch_id): 1}
+
+    return metadata, events, event_id, onset_times
+
+
+def epoch_data(subject, epoch_id, meg_data, tmin, tmax, from_df, baseline=(0, 0), reject=None, save_data=False, epochs_save_path=None, epochs_data_fname=None):
     """
     Epoch the MEG data based on the provided parameters.
 
@@ -180,7 +243,10 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
         raise ValueError('Please provide path and filename to save data. If not, set save_data to false.')
 
     # Define events
-    metadata, events, events_id, onset_times = define_events(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
+    if from_df:
+        metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
+    else:
+        metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
 
     # Reject based on channel amplitude
     if reject == False:
@@ -191,10 +257,10 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=
         reject = dict(mag=subject.params.reject_amp)
 
     # Epoch data
-    epochs = mne.Epochs(raw=meg_data, events=events, event_id=events_id, tmin=tmin, tmax=tmax, reject=None,
-                        event_repeated='drop', metadata=metadata, preload=True, baseline=baseline, reject_by_annotation=False)
+    epochs = mne.Epochs(raw=meg_data, events=events, event_id=event_id, tmin=tmin, tmax=tmax, reject=None, proj=False,
+                        event_repeated='drop', metadata=metadata, preload=True, baseline=baseline, reject_by_annotation=True)
     # Drop bad epochs
-    # epochs.drop_bad()
+    epochs.drop_bad()
 
     if save_data:
         # Save epoched data
@@ -231,10 +297,9 @@ def annotate_bad_intervals(meg_data, data_fname, data_type, sds, save_data=True)
     """
     # 0. Copy MEG data to avoid altering
     annot_data = meg_data.copy()
-    annot_data.pick('meg')
 
     # 1. Get the channel data as a NumPy array
-    data = annot_data.get_data()  # Shape: (n_channels, n_times)
+    data = annot_data.copy().pick('meg').get_data()  # Shape: (n_channels, n_times)
     sfreq = annot_data.info['sfreq']  # Sampling frequency
     n_samples = data.shape[1]
     epoch_length = int(5 * sfreq)  # 5 seconds in samples
@@ -286,6 +351,9 @@ def annotate_bad_intervals(meg_data, data_fname, data_type, sds, save_data=True)
         elif data_type == 'tsss':
             os.makedirs(paths.tsss_raw_annot_path, exist_ok=True)
             annot_data.save(paths.tsss_raw_annot_path + data_fname, overwrite=True)
+        elif data_type == 'processed':
+            os.makedirs(paths.processed_path_annot, exist_ok=True)
+            annot_data.save(paths.processed_path_annot + data_fname, overwrite=True)
 
     return annot_data, bad_segments
 
@@ -369,6 +437,113 @@ def estimate_sources_cov(subject, meg_params, trial_params, filters, active_time
     return stc
 
 
+def run_source_permutations_test(src, stc, source_data, subject, exp_info, save_regions, fig_path, surf_vol, p_threshold=0.05, n_permutations=1024, desired_tval='TFCE',
+                                 mask_negatives=False):
+
+    # Return variables
+    stc_all_cluster_vis, significant_voxels, significance_mask, t_thresh_name, time_label = None, None, None, None, None
+
+    # Compute source space adjacency matrix
+    print("Computing adjacency matrix")
+    adjacency_matrix = mne.spatial_src_adjacency(src)
+
+    # Transpose source_fs_data from shape (subjects x space x time) to shape (subjects x time x space)
+    source_data_default = source_data.swapaxes(1, 2)
+
+    # Define the t-value threshold for cluster formation
+    if desired_tval == 'TFCE':
+        t_thresh = dict(start=0, step=0.1)
+    else:
+        df = len(exp_info.subjects_ids) - 1  # degrees of freedom for the test
+        t_thresh = stats.distributions.t.ppf(1 - desired_tval / 2, df=df)
+
+    # Run permutations
+    T_obs, clusters, cluster_p_values, H0 = clu = spatio_temporal_cluster_1samp_test(X=source_data_default,
+                                                                                     n_permutations=n_permutations,
+                                                                                     adjacency=adjacency_matrix,
+                                                                                     n_jobs=4, threshold=t_thresh)
+
+    # Select the clusters that are statistically significant at p
+    good_clusters_idx = np.where(cluster_p_values < p_threshold)[0]
+    good_clusters = [clusters[idx] for idx in good_clusters_idx]
+    significant_pvalues = [cluster_p_values[idx] for idx in good_clusters_idx]
+
+    if len(good_clusters):
+
+        # variable for figure fnames and p_values as title
+        if type(t_thresh) == dict:
+            time_label = f'{np.round(np.mean(significant_pvalues), 4)} +- {np.round(np.std(significant_pvalues), 4)}'
+            t_thresh_name = 'TFCE'
+        else:
+            time_label = str(significant_pvalues)
+            t_thresh_name = round(t_thresh, 2)
+
+        # Get vertices from source space
+        fsave_vertices = [s["vertno"] for s in src]
+
+        # Select clusters for visualization
+        stc_all_cluster_vis = summarize_clusters_stc(clu=clu, p_thresh=p_threshold, tstep=stc.tstep, vertices=fsave_vertices, subject=subject)
+
+        # Get significant clusters
+        significance_mask = np.where(stc_all_cluster_vis.data[:, 0] == 0)[0]
+        significant_voxels = np.where(stc_all_cluster_vis.data[:, 0] != 0)[0]
+
+        # Get significant AAL and brodmann regions from mni space
+        if save_regions:
+            os.makedirs(fig_path, exist_ok=True)
+            significant_regions_df = get_regions_from_mni(src_default=src, significant_voxels=significant_voxels, save_path=fig_path, surf_vol=surf_vol,
+                                                                            t_thresh_name=t_thresh_name, p_threshold=p_threshold, masked_negatves=mask_negatives)
+
+    return stc_all_cluster_vis, significant_voxels, significance_mask, t_thresh_name, time_label, p_threshold
+
+
+def get_regions_from_mni(src_default, significant_voxels, save_path, t_thresh_name, p_threshold, surf_vol, masked_negatves=False):
+
+    # Get all source space used voxels locations (meters -> mm)
+    if surf_vol == 'volume':
+        used_voxels_mm = src_default[0]['rr'][src_default[0]['inuse'].astype(bool)] * 1000
+    elif surf_vol == 'surface':
+        used_voxels_mm = np.vstack((src_default[0]['rr'][src_default[0]['inuse'].astype(bool)] * 1000, src_default[1]['rr'][src_default[1]['inuse'].astype(bool)] * 1000))
+
+    # Get significant voxels mni locations
+    significant_voxels_mm = used_voxels_mm[significant_voxels]
+
+    # Restrict to atlases range
+    atlas_range = {0: (-270, 89), 1: (-341, 90), 2: (-251, 108)}
+
+    # X coord
+    significant_voxels_mm[significant_voxels_mm[:, 0] < atlas_range[0][0], 0] = atlas_range[0][0]
+    significant_voxels_mm[significant_voxels_mm[:, 0] > atlas_range[0][1], 0] = atlas_range[0][1]
+    # Y coord
+    significant_voxels_mm[significant_voxels_mm[:, 1] < atlas_range[1][0], 1] = atlas_range[1][0]
+    significant_voxels_mm[significant_voxels_mm[:, 1] > atlas_range[1][1], 1] = atlas_range[1][1]
+    # Z coord
+    significant_voxels_mm[significant_voxels_mm[:, 2] < atlas_range[2][0], 2] = atlas_range[2][0]
+    significant_voxels_mm[significant_voxels_mm[:, 2] > atlas_range[2][1], 2] = atlas_range[2][1]
+
+    atlas = AtlasBrowser("AAL3")
+    significant_regions = atlas.find_regions(significant_voxels_mm)
+
+    # Atlas regions
+    all_aals = [region for region in significant_regions]
+    aals_count = [(region, all_aals.count(region)) for region in significant_regions]
+    sig_aals = list(set(aals_count))
+
+    # Define dictonary to save regions
+    save_dict = {'aal': [region[0] for region in sig_aals], 'aal occurence': [region[1] for region in sig_aals]}
+
+    # Define save dataframe
+    significant_regions_df = pd.DataFrame(dict([(key, pd.Series(value)) for key, value in save_dict.items()]))
+
+    # Save
+    if masked_negatves:
+        fname = f'sig_t{t_thresh_name}_p{p_threshold}_{surf_vol}masked.csv'
+    else:
+        fname = f'sig_t{t_thresh_name}_p{p_threshold}_{surf_vol}.csv'
+    significant_regions_df.to_csv(save_path + fname)
+
+    return significant_regions_df
+
 
 #---------- MTRF -----------#
 def get_bad_annot_array(meg_data, subj_path, fname, save_var=True):
@@ -403,11 +578,14 @@ def get_bad_annot_array(meg_data, subj_path, fname, save_var=True):
     return bad_annotations_array
 
 
-def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_array,
+def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_array, from_df,
                     subj_path, fname, save_var=True):
 
     # Define events
-    metadata, events, _, _ = define_events(subject=subject, epoch_id=var_name, meg_data=meg_data)
+    if from_df:
+        metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=var_name)
+    else:
+        metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=var_name)
     # Make input arrays as 0
     input_array = np.zeros(len(meg_data.times))
     # Get events samples index
@@ -432,21 +610,26 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
     rf = ReceptiveField(tmin, tmax, meg_data.info['sfreq'], estimator=alpha, scoring='corrcoef', n_jobs=n_jobs)
 
     # Get subset channels data as array
-    picks = functions_general.pick_chs(chs_id=chs_id, info=meg_data.info)
-    meg_sub = meg_data.copy().pick(picks)
-
-    # Apply hilbert and extract envelope
-    if fit_power:
-        meg_sub = meg_sub.apply_hilbert(envelope=True)
+    if chs_id != 'misc':
+        picks = functions_general.pick_chs(chs_id=chs_id, info=meg_data.info)
+        meg_sub = meg_data.copy().pick(picks)
+        # Apply hilbert and extract envelope
+        if fit_power:
+            meg_sub = meg_sub.apply_hilbert(envelope=True)
+    else:
+        meg_sub = meg_data.copy()
+        # Apply hilbert and extract envelope
+        if fit_power:
+            meg_sub = meg_sub.apply_hilbert(envelope=True, picks='VE')
 
     meg_data_array = meg_sub.get_data()
 
     if standarize:
         # Standarize data
         print('Computing z-score...')
-        meg_data_array = np.expand_dims(meg_data_array, axis=0)  # Need shape (n_epochs, n_channels n_times)
+        meg_data_array = np.expand_dims(meg_data_array, axis=0)  # Need shape (n_epochs, n_channels, n_times)
         meg_data_array = mne.decoding.Scaler(info=meg_sub.info, scalings='mean').fit_transform(meg_data_array)
-        meg_data_array = meg_data_array.squeeze()
+        meg_data_array = meg_data_array[0, :, :]
     # Transpose to input the model
     meg_data_array = meg_data_array.T
 
@@ -456,7 +639,7 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
     return rf
 
 
-def compute_trf(subject, meg_data, trf_params, meg_params, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
+def compute_trf(subject, meg_data, trf_params, meg_params, from_df, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
                 save_data=False, trf_path=None, trf_fname=None):
 
     print(f"Computing TRF for {trf_params['input_features']}")
@@ -486,7 +669,7 @@ def compute_trf(subject, meg_data, trf_params, meg_params, all_chs_regions=['fro
         except:
             print(f'Computing input array for {feature}...')
             input_arrays = make_mtrf_input(input_arrays=input_arrays, var_name=feature,
-                                           subject=subject, meg_data=meg_data,
+                                           subject=subject, meg_data=meg_data, from_df=from_df,
                                            bad_annotations_array=bad_annotations_array,
                                            subj_path=subj_path, fname=fname_var)
 
@@ -576,7 +759,7 @@ def make_trf_evoked(subject, rf, meg_data, trf_params, meg_params, evokeds=None,
         else:
             trf[feature] = rf.coef_[:, i, :]
             # Define evoked objects from arrays of TRF
-            subj_evoked[feature] = mne.EvokedArray(data=trf[feature], info=meg_sub.info, tmin=trf_params['tmin'], baseline=trf_params['baseline'])
+            subj_evoked[feature] = mne.EvokedArray(data=trf[feature], info=meg_data.info, tmin=trf_params['tmin'], baseline=trf_params['baseline'])
 
         # Append for Grand average
         if evokeds != None:
