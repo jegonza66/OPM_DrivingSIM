@@ -1,6 +1,7 @@
 import os
 import mne
 import numpy as np
+import functions_general
 import paths
 import load
 import setup
@@ -12,11 +13,12 @@ exp_info = setup.exp_info()
 # --------- Setup ---------#
 task = 'DA'
 # Define surface or volume source space
+chs_id = 'mag_z'
 surf_vol = 'surface'
 force_fsaverage = False
 ico = 4
 spacing = 10.
-pick_ori = None
+pick_ori = None # 'normal' | 'max-power' | None
 depth = None
 
 # Define Subjects_dir as Freesurfer output folder
@@ -35,6 +37,8 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     if subject_id != 'fsaverage':
         meg_data = load.ica_data(subject_id=subject_id, task=task)
+        picks = functions_general.pick_chs(chs_id=chs_id, info=meg_data.info)
+        meg_data.pick(picks)
 
         if force_fsaverage:
             subject_code = 'fsaverage'
@@ -104,7 +108,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
         # Forward model
         if subject_id != 'fsaverage':
-            fname_fwd = sources_path_subject + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-fwd.fif'
+            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_volume_ico{ico}_{int(spacing)}-fwd.fif'
             try:
                 # Load
                 fwd = mne.read_forward_solution(fname=fname_fwd)
@@ -127,7 +131,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
         # Forward model
         if subject_id != 'fsaverage':
-            fname_fwd = sources_path_subject + f'/{subject_code}_surface_ico{ico}-fwd.fif'
+            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_surface_ico{ico}-fwd.fif'
             try:
                 # Load
                 fwd = mne.read_forward_solution(fname=fname_fwd)
@@ -173,5 +177,5 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         # Forward model
         if subject_id != 'fsaverage':
             fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
-            fname_fwd = sources_path_subject + f'/{subject_code}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
+            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
