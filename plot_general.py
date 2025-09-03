@@ -1200,3 +1200,95 @@ def bad_segments(meg_data, bad_segments, sds, ax, fig):
     plt.show()
 
     return fig
+
+
+def ve_evoked(evoked_ve, envelope, key, trf_params, ve_params, ve_dict, tmin, tmax, subject_id, save_fig, ve_fig_path_trf, ve_fig_path):
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+
+    # Plot evoked response
+    times = np.linspace(tmin, tmax, len(evoked_ve[key]))
+    axes[0].plot(times, evoked_ve[key] * 1e15, 'b-', linewidth=2)
+    axes[0].set_xlabel('Time (s)')
+    axes[0].set_ylabel('Amplitude (A.U.)' if trf_params['run_mtrf'] else 'Amplitude (fT)')
+
+    # Dynamic title based on analysis type
+    analysis_type = F"mTRF Response {key}" if trf_params['run_mtrf'] else "Evoked VE Response"
+    vertex_info = f"Vertex {ve_dict['peak_index']}"
+    axes[0].set_title(f'Subject {subject_id} - {analysis_type} ({vertex_info})')
+    axes[0].axvline(0, color='k', linestyle='--', alpha=0.5)
+    axes[0].grid(True, alpha=0.3)
+
+    # Plot Hilbert envelope (works for both regular and continuous)
+    env_times = np.linspace(tmin, tmax, len(envelope[key]))
+    axes[1].plot(env_times, envelope[key], 'r-', linewidth=2)
+    axes[1].set_xlabel('Time (s)')
+    axes[1].set_ylabel('Relative Change')
+    axes[1].set_title(f'Subject {subject_id} - Hilbert Envelope (Baseline: {ve_params["baseline_hilb"]})')
+    axes[1].axvline(0, color='k', linestyle='--', alpha=0.5)
+    axes[1].axhline(0, color='k', linestyle='-', alpha=0.3)
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Save figure with appropriate filename
+    if save_fig:
+        analysis_suffix = f"mTRF_{key}" if trf_params['run_mtrf'] else "VE"
+        fig_fname = f'Subject_{subject_id}_{analysis_suffix}_analysis.png'
+        if trf_params['run_mtrf']:
+            os.makedirs(ve_fig_path_trf, exist_ok=True)
+            plt.savefig(ve_fig_path_trf + fig_fname, dpi=300, bbox_inches='tight')
+        else:
+            os.makedirs(ve_fig_path, exist_ok=True)
+            plt.savefig(ve_fig_path + fig_fname, dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+
+def ve_ga(ve_results, grand_avg_evoked, grand_avg_envelope, key, all_evoked_data_arr, all_envelopes_arr, trf_params, tmin, tmax, save_fig, ve_fig_path_trf, ve_fig_path):
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+
+    # Group evoked
+    times = np.linspace(tmin, tmax, len(ve_results[0]['evoked_ve'][key]))
+    axes[0].plot(times, grand_avg_evoked * 1e15, 'b-', linewidth=3, label='Grand Average')
+
+    # Individual subjects
+    for i, data in enumerate(all_evoked_data_arr):
+        axes[0].plot(times, data * 1e15, 'b-', alpha=0.3, linewidth=1)
+
+    axes[0].set_xlabel('Time (s)')
+    axes[0].set_ylabel('Amplitude (A.U.)' if trf_params['run_mtrf'] else 'Amplitude (fT)')
+
+    # Dynamic title based on analysis type
+    analysis_type = "mTRF Response" if trf_params['run_mtrf'] else "Evoked VE Response"
+    axes[0].set_title(f'Grand Average (n={len(ve_results)}) - {analysis_type}')
+    axes[0].axvline(0, color='k', linestyle='--', alpha=0.5)
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # Group envelope
+    env_times = np.linspace(tmin, tmax, len(grand_avg_envelope))
+    axes[1].plot(env_times, grand_avg_envelope, 'r-', linewidth=3, label='Grand Average')
+
+    # Individual subjects
+    for i, env in enumerate(all_envelopes_arr):
+        axes[1].plot(env_times, env, 'r-', alpha=0.3, linewidth=1)
+
+    axes[1].set_xlabel('Time (s)')
+    axes[1].set_ylabel('Relative Change')
+    axes[1].set_title(f'Grand Average Hilbert Envelope (n={len(ve_results)})')
+    axes[1].axvline(0, color='k', linestyle='--', alpha=0.5)
+    axes[1].axhline(0, color='k', linestyle='-', alpha=0.3)
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if save_fig:
+        fig_fname = f'GA_{key}.png'
+        if trf_params['run_mtrf']:
+            plt.savefig(ve_fig_path_trf + fig_fname, dpi=300, bbox_inches='tight')
+        else:
+            plt.savefig(ve_fig_path + fig_fname, dpi=300, bbox_inches='tight')
+
+    plt.show()
