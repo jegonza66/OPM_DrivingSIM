@@ -284,11 +284,11 @@ def tsss_raw_annot_data(subject_id, task, sds=3, preload=True, save_data=True, p
     return annot_data
 
 
-def meg(subject_id, meg_params, task='DA', preload=True, save_data=True):
+def meg(subject_id, meg_params={}, task='DA', preload=True, save_data=True):
 
     # Define parameters from meg_params
     band_id = meg_params.get('band_id', None)
-    data_type = meg_params.get('data_type', None)
+    data_type = meg_params.get('data_type', 'ICA_annot')
     filter_sensors = meg_params.get('filter_sensors', None)
     filter_method = meg_params.get('filter_method', None)
 
