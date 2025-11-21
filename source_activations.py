@@ -39,11 +39,11 @@ meg_params = {'chs_id': 'mag',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
-              'data_type': 'processed_annot'
+              'data_type': 'ICA_annot'
               }
 
 # TRF parameters
-trf_params = {'input_features': ['fixation', 'saccade'],   # Select features (events)
+trf_params = {'input_features': ['fixation'],   # Select features (events)
               'standarize': False,
               'fit_power': False,
               'alpha': None,
@@ -61,12 +61,12 @@ run_comparison = True
 # Source estimation parameters
 force_fsaverage = False
 model_name = 'lcmv'
-surf_vol = 'surface'
-ico = 4
-spacing = 10.  # Only for volume source estimation
+surf_vol = 'volume'
+ico = 5
+spacing = 5  # Only for volume source estimation
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
 source_power = False
-source_estimation = 'evk'  # 'epo' / 'evk' / 'cov' / 'trf'
+source_estimation = 'trf'  # 'epo' / 'evk' / 'cov' / 'trf'
 visualize_alignment = False
 active_times = None
 
@@ -215,11 +215,11 @@ for param in param_values.keys():
             sources_path_subject = paths.sources_path + subject.subject_id
             # Load forward model
             if surf_vol == 'volume':
-                fname_fwd = sources_path_subject + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_volume_ico{ico}_{int(spacing)}-fwd.fif'
             elif surf_vol == 'surface':
-                fname_fwd = sources_path_subject + f'/{subject_code}_surface_ico{ico}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_surface_ico{ico}-fwd.fif'
             elif surf_vol == 'mixed':
-                fname_fwd = sources_path_subject + f'/{subject_code}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
             fwd = mne.read_forward_solution(fname_fwd)
             src = fwd['src']
 
@@ -227,6 +227,9 @@ for param in param_values.keys():
             try:
                 # Load epochs
                 epochs = mne.read_epochs(epochs_save_path + epochs_data_fname)
+                # Pick channels
+                picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=epochs.info)
+                epochs.pick(picks)
 
                 if source_estimation == 'trf':
                     # Load MEG
@@ -238,6 +241,7 @@ for param in param_values.keys():
                 else:
                     # Define evoked from epochs
                     evoked = epochs.average()
+                    evoked.pick(picks)
 
             except:
                 # Load MEG
@@ -258,10 +262,10 @@ for param in param_values.keys():
                     # Define evoked from epochs
                     evoked = epochs.average()
 
-            # Pick channels
-            picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
-            evoked.pick(picks)
-            epochs.pick(picks)
+                    # Pick channels
+                    picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
+                    evoked.pick(picks)
+                    epochs.pick(picks)
 
             # --------- Source estimation ---------#
             # Load filter
