@@ -18,6 +18,7 @@ exp_info = setup.exp_info()
 save_data = True
 save_fig = True
 display_figs = True
+use_saved_data = False
 if display_figs:
     plt.ion()
 else:
@@ -27,7 +28,7 @@ else:
 #----- Parameters -----#
 task = 'DA'
 # Trial selection
-trial_params = {'epoch_id': 'pur',  # use'+' to mix conditions (red+blue)
+trial_params = {'epoch_id': 'fixation',  # use'+' to mix conditions (red+blue)
                 'reject': False,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value
                 'evt_from_df': True # If True, use events from df, otherwise use events from annotations
                 }
@@ -35,7 +36,7 @@ meg_params = {'chs_id': 'mag',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
-              'data_type': 'processed_annot',  # 'raw', 'ICA', 'processed', 'tsss'
+              'data_type': 'ICA_annot',  # 'raw', 'ICA', 'processed', 'tsss'
               }
 
 l_freq, h_freq = functions_general.get_freq_band(band_id=meg_params['band_id'])
@@ -74,12 +75,12 @@ for subject_id in exp_info.subjects_ids:
     epochs_data_fname = f'Subject_{subject.subject_id}_epo.fif'
     evoked_data_fname = f'Subject_{subject.subject_id}_ave.fif'
 
-    try:
+    if os.path.exists(evoked_save_path + evoked_data_fname) and use_saved_data:
         # Load evoked data
         evoked = mne.read_evokeds(evoked_save_path + evoked_data_fname, verbose=False)[0]
 
-    except:
-        try:
+    else:
+        if os.path.exists(epochs_save_path + epochs_data_fname) and use_saved_data:
             # Load epoched data
             epochs = mne.read_epochs(epochs_save_path + epochs_data_fname)
 
@@ -91,7 +92,7 @@ for subject_id in exp_info.subjects_ids:
                 # Save evoked data
                 os.makedirs(evoked_save_path, exist_ok=True)
                 evoked.save(evoked_save_path + evoked_data_fname, overwrite=True)
-        except:
+        else:
             # Load MEG
             meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
 
