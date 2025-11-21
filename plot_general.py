@@ -1011,7 +1011,7 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
             bg_img = None
 
         # Set backend
-        matplotlib.use('TkAgg')
+        # matplotlib.use('TkAgg')
 
         fig = stc.plot(src=src, subject=subject, subjects_dir=subjects_dir, initial_time=initial_time_plot, clim=clim, bg_img=bg_img)
         if save_fig:
