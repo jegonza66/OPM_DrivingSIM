@@ -335,6 +335,8 @@ def pick_chs(chs_id, info):
 
     else:
         ids = chs_id.split('_')
+        if 'mag' in ids:
+            ids.remove('mag')
         picks = []
         for id in ids:
             if id == 'parietal':
