@@ -68,11 +68,13 @@ def var(var, path, fname):
         Filename of file to save
     """
 
+    # Adapt in case of not allowed characters in filename
+    file_path = os.path.join(path, fname)
+
     # Make dir
     os.makedirs(path, exist_ok=True)
 
     # Save
-    file_path = path + '/' + fname
     f = open(file_path, 'wb')
     pickle.dump(var, f)
     f.close()
