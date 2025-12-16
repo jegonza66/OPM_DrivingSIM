@@ -19,6 +19,7 @@ exp_info = setup.exp_info()
 #--------- Define Parameters ---------#
 
 # Save
+use_saved_data = False
 save_fig = True
 save_data = True
 display_figs = False
@@ -35,7 +36,7 @@ trial_params = {'epoch_id': 'fix',  # use'+' to mix conditions (red+blue)
                 'evt_from_df': True
                 }
 
-meg_params = {'chs_id': 'mag',
+meg_params = {'chs_id': 'mag_z',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
@@ -43,14 +44,20 @@ meg_params = {'chs_id': 'mag',
               }
 
 # TRF parameters
-trf_params = {'input_features': ['fixation'],   # Select features (events)
+trf_params = {'input_features': {#'fix': ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present'],  # _X_ for intersection between features
+                                 'sac': None,
+                                 #'pur': None,
+                                 #'DAall': None,
+                                 # 'left_but': None,
+                                 # 'right_but': None
+                                 },   # Select features (events)
               'standarize': False,
               'fit_power': False,
               'alpha': None,
               'tmin': -0.2,
               'tmax': 0.5,
-              'baseline': (-0.2, -0.05)
               }
+trf_params['baseline'] = (trf_params['tmin'], -0.05)
 
 # Get frquencies
 l_freq, h_freq = functions_general.get_freq_band(band_id=meg_params['band_id'])
@@ -61,7 +68,7 @@ run_comparison = True
 # Source estimation parameters
 force_fsaverage = False
 model_name = 'lcmv'
-surf_vol = 'volume'
+surf_vol = 'surface'
 ico = 5
 spacing = 5  # Only for volume source estimation
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
@@ -117,7 +124,22 @@ src_default = mne.read_source_spaces(fname_src)
 
 # Overwrite trial params to match trf features
 if source_estimation == 'trf':
-    trial_params['epoch_id'] = trf_params['input_features']  # Set epoch_id to first feature for source estimation
+
+    # Define Grand average variables
+    feature_evokeds = {}
+
+    elements = trf_params['input_features'].keys()
+    for feature in elements:
+        feature_evokeds[feature] = []
+        if isinstance(trf_params['input_features'], dict):
+            try:
+                for value in trf_params['input_features'][feature]:
+                    feature_value = f'{feature}-{value}'
+                    feature_evokeds[feature_value] = []
+            except:
+                pass
+
+    trial_params['epoch_id'] = list(feature_evokeds.keys())
 
 # Get param to compute difference from params dictionary
 param_values = {key: value for key, value in trial_params.items() if type(value) == list}
@@ -148,7 +170,7 @@ for param in param_values.keys():
         stcs_default_dict[param][param_value] = []
 
         # Iterate over participants
-        for subject_id in exp_info.subjects_ids:
+        for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
             # Load subject
             subject = setup.subject(subject_id=subject_id)
 
@@ -215,11 +237,11 @@ for param in param_values.keys():
             sources_path_subject = paths.sources_path + subject.subject_id
             # Load forward model
             if surf_vol == 'volume':
-                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_volume_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_volume_ico{ico}_{int(spacing)}-fwd.fif'
             elif surf_vol == 'surface':
-                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_surface_ico{ico}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_surface_ico{ico}-fwd.fif'
             elif surf_vol == 'mixed':
-                fname_fwd = sources_path_subject + f'/{subject_code}_chs{meg_params['chs_id']}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
             fwd = mne.read_forward_solution(fname_fwd)
             src = fwd['src']
 
@@ -235,6 +257,13 @@ for param in param_values.keys():
                     # Load MEG
                     meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
 
+                    # Pick channels
+                    picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=meg_data.info)
+                    meg_data = meg_data.pick(picks)
+
+                    # Suppress warning about SSP projection
+                    meg_data.info.normalize_proj()
+
                 elif source_estimation == 'cov':
                     channel_types = epochs.get_channel_types()
                     bad_channels = epochs.info['bads']
@@ -246,6 +275,13 @@ for param in param_values.keys():
             except:
                 # Load MEG
                 meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
+
+                # Pick channels
+                picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
+                meg_data.pick(picks)
+
+                # Suppress warning about SSP projection
+                meg_data.info.normalize_proj()
 
                 if source_estimation == 'cov':
                     channel_types = meg_data.get_channel_types()
@@ -261,20 +297,22 @@ for param in param_values.keys():
 
                     # Define evoked from epochs
                     evoked = epochs.average()
-
-                    # Pick channels
-                    picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
                     evoked.pick(picks)
                     epochs.pick(picks)
 
             # --------- Source estimation ---------#
             # Load filter
-            if os.path.isfile(sources_path_subject + fname_lcmv):
+            if os.path.isfile(sources_path_subject + fname_lcmv) and use_saved_data:
                 filters = mne.beamformer.read_beamformer(sources_path_subject + fname_lcmv)
             else:
-                #  Make filters
-                meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
-                meg_data.pick(picks)
+                try:
+                    meg_data
+                except:
+                    #  Make filters
+                    meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
+                    meg_data.pick(picks)
+                    # Suppress warning about SSP projection
+                    meg_data.info.normalize_proj()
 
                 data_cov = mne.compute_raw_covariance(meg_data)
                 filters = beamformer.make_lcmv(info=meg_data.info, forward=fwd, data_cov=data_cov, reg=0.05, pick_ori=pick_ori)
@@ -353,32 +391,37 @@ for param in param_values.keys():
             # Estimate sources from evoked
             elif source_estimation == 'trf':
 
+                # # Pick channels
+                # picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=meg_data.info)
+                # meg_data = meg_data.pick(picks)
+                # print(len(meg_data.ch_names), 'channels selected for TRF source estimation')
+
                 # Get trf paths
                 trf_path = paths.save_path + (
                     f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{trf_params['input_features']}_{trf_params['tmin']}_{trf_params['tmax']}_"
-                    f"bline{trf_params['baseline']}_alpha{trf_params['alpha']}_std{trf_params['standarize']}/{meg_params['chs_id']}/")
+                    f"bline{trf_params['baseline']}_alpha{trf_params['alpha']}_std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")
                 trf_fig_path = trf_path.replace(paths.save_path, paths.plots_path)
                 trf_fname = f'TRF_{subject.subject_id}.pkl'
 
-                try:
+                if os.path.exists(trf_path + trf_fname) and use_saved_data:
                     # Load TRF
                     rf = load.var(trf_path + trf_fname)
                     print('Loaded Receptive Field')
 
-                except:
+                else:
                     # Compute TRF for defined features
-                    rf = functions_analysis.compute_trf(subject=subject, meg_data=meg_data,
-                                                        trf_params=trf_params,
-                                                        meg_params=meg_params,
-                                                        save_data=save_data, trf_path=trf_path, trf_fname=trf_fname)
+                    rf = functions_analysis.compute_trf(subject=subject, meg_data=meg_data, trial_params=trial_params, trf_params=trf_params, meg_params=meg_params,
+                                                        features=list(feature_evokeds.keys()), alpha=trf_params['alpha'], use_saved_data=use_saved_data,
+                                                        save_data=save_data,
+                                                        trf_path=trf_path, trf_fname=trf_fname)
 
                 # Get model coeficients as separate responses to each feature
-                subj_evoked, _ = functions_analysis.make_trf_evoked(subject=subject, rf=rf, meg_data=meg_data,
-                                                                    trf_params=trf_params, meg_params=meg_params,
-                                                                    fig_path=trf_fig_path)
+                feature_evokeds = functions_analysis.parse_trf_to_evoked(subject=subject, rf=rf, meg_data=meg_data, feature_evokeds=feature_evokeds,
+                                                                         trf_params=trf_params, meg_params=meg_params, sub_idx=sub_idx,
+                                                                         plot_individuals=plot_individuals, save_fig=save_fig, fig_path=fig_path)
 
                 # Get evoked from desired feature
-                evoked = subj_evoked[run_params['epoch_id']]
+                evoked = feature_evokeds[run_params['epoch_id']][sub_idx]
 
                 # Apply filter and get source estimates
                 stc = beamformer.apply_lcmv(evoked=evoked, filters=filters)
