@@ -16,10 +16,12 @@ task = 'DA'
 chs_id = 'mag_z'
 surf_vol = 'surface'
 force_fsaverage = False
-ico = 4
-spacing = 10.
+ico = 5
+spacing = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
+
+meg_params = {'data_type': 'ICA_annot'}
 
 # Define Subjects_dir as Freesurfer output folder
 mri_path = paths.mri_path
@@ -36,7 +38,8 @@ dig_path = paths.opt_path
 for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
     if subject_id != 'fsaverage':
-        meg_data = load.ica_data(subject_id=subject_id, task=task)
+        # Load MEG
+        meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
         picks = functions_general.pick_chs(chs_id=chs_id, info=meg_data.info)
         meg_data.pick(picks)
 
@@ -108,14 +111,10 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
         # Forward model
         if subject_id != 'fsaverage':
-            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_volume_ico{ico}_{int(spacing)}-fwd.fif'
-            try:
-                # Load
-                fwd = mne.read_forward_solution(fname=fname_fwd)
-            except:
-                # Compute
-                fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
-                mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
+            fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_volume_ico{ico}_{int(spacing)}-fwd.fif'
+            # Compute
+            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
+            mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
     elif surf_vol == 'surface':
         # Source model
@@ -131,14 +130,9 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
         # Forward model
         if subject_id != 'fsaverage':
-            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_surface_ico{ico}-fwd.fif'
-            try:
-                # Load
-                fwd = mne.read_forward_solution(fname=fname_fwd)
-            except:
-                # Compute
-                fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
-                mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
+            fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_surface_ico{ico}-fwd.fif'
+            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
+            mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
     elif surf_vol == 'mixed':
         fname_src_mix = paths.sources_path + subject_code + f'/{subject_code}_mixed_ico{ico}_{int(spacing)}-src.fif'
@@ -160,14 +154,10 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
             # Volume source model
             fname_src_vol = paths.sources_path + subject_code + f'/{subject_code}_volume_ico{ico}_{int(spacing)}-src.fif'
-            try:
-                # Load
-                src_vol = mne.read_source_spaces(fname_src_vol)
-            except:
-                # Compute
-                src_vol = mne.setup_volume_source_space(subject=subject_code, subjects_dir=subjects_dir, bem=bem, pos=spacing, sphere_units='m', add_interpolator=True)
-                # Save
-                mne.write_source_spaces(fname_src_vol, src_vol, overwrite=True)
+            # Compute
+            src_vol = mne.setup_volume_source_space(subject=subject_code, subjects_dir=subjects_dir, bem=bem, pos=spacing, sphere_units='m', add_interpolator=True)
+            # Save
+            mne.write_source_spaces(fname_src_vol, src_vol, overwrite=True)
 
             # Mixed source space
             src = src_surf + src_vol
@@ -177,5 +167,5 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         # Forward model
         if subject_id != 'fsaverage':
             fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
-            fname_fwd = sources_path_subject + f'/{subject_code}_chs{chs_id}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
+            fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
