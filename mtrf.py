@@ -5,6 +5,7 @@ import setup
 import paths
 import matplotlib.pyplot as plt
 import os
+import plot_general
 
 #----- Path -----#
 exp_info = setup.exp_info()
@@ -22,25 +23,34 @@ else:
 
 #-----  Parameters -----#
 trial_params = {
-                'evt_from_df': True,
+                'evt_from_df': False,
                 }
 
-meg_params = {'chs_id': 'mag',
+meg_params = {'chs_id': 'mag_z',
               'band_id': None,
               'data_type': 'ICA_annot'
               }
 
 # TRF parameters
-trf_params = {'input_features': {'fix': None,
-                                 'sac': None
-                                 },   # Select features (events)
-              'standarize': False,
-              'fit_power': False,
-              'alpha': None,
-              'tmin': -0.2,
-              'tmax': 0.5,
-              }
-trf_params['baseline'] = (trf_params['tmin'], -0.05)
+trf_params = {
+    'input_features': {
+        # 'fix': ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present'],# _X_ for intersection between features
+        # 'sac': None,
+        # 'pur': None,
+        # 'DAall': None,
+        'steering': None,
+        'gas': None,
+        'brake': None,
+        'left_but': None,
+        'right_but': None
+    },  # Select features (events)
+    'standarize': False,
+    'fit_power': False,
+    'alpha': None,
+    'tmin': -3,
+    'tmax': 3,
+}
+trf_params['baseline'] = (trf_params['tmin'], trf_params['tmax'])
 
 # Figure path
 fig_path = paths.plots_path + (f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{trf_params['input_features']}"
@@ -101,3 +111,10 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
 # Grand average
 grand_avg = functions_analysis.trf_grand_average(feature_evokeds=feature_evokeds, trf_params=trf_params, meg_params=meg_params,
                                                  display_figs=display_figs, save_fig=save_fig, fig_path=fig_path)
+
+
+joint_ylims = None
+# Plot features figure
+fname = f'GA_features_TFCE'
+
+fig = plot_general.plot_trf_features(grand_avg=grand_avg, joint_ylims=joint_ylims, time_topos=0, top_topos=False, save_fig=save_fig, fig_path=fig_path, fname=fname)
