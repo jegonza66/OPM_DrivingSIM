@@ -93,6 +93,10 @@ class exp_info:
         # Dataframe containing DA symbols start times for each subject
         self.da_times = {key: pd.read_csv(paths.exp_path + f'da_time_{key}.csv', names=['DA times']) for key in self.subjects_ids}
 
+        # Dataframe containing DA symbols start times for each subject
+        master_df = pd.read_csv(paths.exp_path + f'master_df.csv')
+        self.master_df = {key: master_df.loc[master_df['part_id'] == int(key)] for key in self.subjects_ids}
+
         # Distance to the screen during the experiment (Fake info)
         self.screen_distance = {'11074': 75,
                                 '11766': 78,
@@ -107,6 +111,41 @@ class exp_info:
 
         # Screen width
         self.screen_size = 56.8
+
+        # Screen resoltion
+        self.screen_res = [1920, 1080]
+
+        # Video resolution
+        self.video_res = [1920, 1080]
+
+        # Mirrors size
+        self.mirrors_size = [250, 200]
+
+        # Mirrors center
+        self.left_mirror_center = [250, 900]
+
+        self.left_mirror_px = {'x': [self.left_mirror_center[0] - self.mirrors_size[0]/2,
+                                     self.left_mirror_center[0] + self.mirrors_size[0]/2],
+                               'y': [self.left_mirror_center[1] - self.mirrors_size[1]/2,
+                                     self.left_mirror_center[1] + self.mirrors_size[1]/2]}
+
+        # Right mirror pixels range
+        self.right_mirror_px = {'x': [self.screen_res[0] - self.left_mirror_center[0] - self.mirrors_size[0]/2,
+                                      self.screen_res[0] - self.left_mirror_center[0] + self.mirrors_size[0]/2],
+                                'y': [self.left_mirror_center[1] - self.mirrors_size[1]/2,
+                                      self.left_mirror_center[1] + self.mirrors_size[1]/2]}
+
+        # Left mirror pixels range
+        # self.left_mirror_px = {'x':[(self.screen_res[0] - self.video_res[0])/2,
+        #                             (self.screen_res[0] - self.video_res[0])/2 + self.mirrors_size_px[0]],
+        #                        'y':[(self.screen_res[1] + self.video_res[1])/2 - self.mirrors_size_px[1],
+        #                             (self.screen_res[1] + self.video_res[1])/2]}
+        #
+        # # Right mirror pixels range
+        # self.right_mirror_px = {'x':[(self.screen_res[0] + self.video_res[0])/2 - self.mirrors_size_px[0],
+        #                             (self.screen_res[0] + self.video_res[0])/2],
+        #                        'y':[(self.screen_res[1] + self.video_res[1])/2 - self.mirrors_size_px[1],
+        #                             (self.screen_res[1] + self.video_res[1])/2]}
 
         # Subjects groups (Fake info)
         self.group = {'11074': 'counterbalanced',
