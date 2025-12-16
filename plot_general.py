@@ -15,6 +15,7 @@ import pandas as pd
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as colors
 import netplotbrain
+from matplotlib.ticker import FuncFormatter
 
 
 save_path = paths.save_path
@@ -621,6 +622,181 @@ def mri_meg_alignment(subject, subject_code, dig, subjects_dir=os.path.join(path
                                      subjects_dir=subjects_dir, surfaces='outer_skin',
                                      show_axes=True, dig=dig, eeg=[], meg='sensors',
                                      coord_frame='meg', mri_fiducials=fids_path)
+
+
+
+def plot_trf_features(grand_avg,
+                      clusters_mask=None,
+                      plot_total_sig_chs=True,
+                      figsize=(22, 12),
+                      time_topos=None,
+                      top_topos=True,
+                      xlim=None,
+                      joint_ylims=dict(mag=[-500, 500]),
+                      vlims_topo=[None, None],
+                      vlims_tfce_topo=[None, None],
+                      save_fig=False,
+                      fig_path=None,
+                      fname=None
+                      ):
+
+    # If no permutations, plot everything
+    if not clusters_mask:
+        clusters_mask = {key: np.ones_like(grand_avg[key].data, dtype=bool) for key in grand_avg.keys()}
+
+    if not xlim:
+        xlim = [grand_avg[list(grand_avg.keys())[0]].times[0], grand_avg[list(grand_avg.keys())[0]].times[-1]]
+
+    top_slide = 0.035
+    horizontal_jump = 1/(len(grand_avg.keys()))*0.98
+    width = 1/(len(grand_avg.keys()) + 2)
+    width_topo = 1/len(grand_avg.keys())/2
+    main_left = 0.033
+    tfce_topo_cb_width = 0.004
+    top_topo_width = 0.03
+
+    fig = plt.figure(constrained_layout=False, figsize=figsize)
+
+    # Get max signifficant channels at any time and coeff
+    max_sig_chs = max([max(clusters_mask[coeff].sum(axis=0)) for coeff in grand_avg.keys()])
+
+    jump = 0
+    for i, coeff in enumerate(grand_avg.keys()):
+        left = main_left + jump * horizontal_jump
+
+        ax_frp = fig.add_axes((left, 0.47, width, 0.2))
+        ax_tfce = fig.add_axes((left, 0.27, width, 0.2))
+        ax_tfce_topo = fig.add_axes((left + (width - width_topo)/2, -0.015, width_topo, 0.25))
+        ax_tfce_topo_cb = fig.add_axes((left + width - tfce_topo_cb_width * 2, 0.035, 0.006, 0.145))
+
+        if top_topos:
+            left -= 0.015
+            ax_topo1 = fig.add_axes((left, 0.75, top_topo_width, 0.07))
+            ax_topo2 = fig.add_axes((left + top_slide, 0.75, top_topo_width, 0.07))
+            ax_topo3 = fig.add_axes((left + top_slide * 2, 0.75, top_topo_width, 0.07))
+            ax_topo_cb = fig.add_axes((left + top_slide * 3, 0.75, 0.004, 0.09))
+            axs_topos = [ax_topo1, ax_topo2, ax_topo3, ax_topo_cb]
+
+        jump += 1
+        # Group axes
+        grand_avg[coeff].nave = None
+        if joint_ylims and len(joint_ylims) == len(grand_avg.keys()):
+            joint_ylims_plot = joint_ylims[i]
+        else:
+            joint_ylims_plot = joint_ylims
+        if top_topos:
+            grand_avg[coeff].plot_joint(title="", ts_args={'xlim': xlim, 'ylim': joint_ylims_plot, 'axes': ax_frp, 'titles': dict(eeg=''), 'window_title': '', 'units': 'A.U.'},
+                                    topomap_args={'vlim':vlims_topo, 'axes': axs_topos, 'size': 3, 'sensors': False},
+                                    show=False)
+        else:
+            grand_avg[coeff].plot(axes=ax_frp, titles='', window_title='', xlim=xlim, ylim=joint_ylims_plot, units='A.U.', show=False)
+
+        # clean axis
+        ax_frp.set_xlabel([])
+        ax_frp.set_xticklabels([])
+        ax_frp.set_title('')
+        if top_topos:
+            ax_cb = axs_topos[-1]
+            ax_cb.set_title(f'A.U.')
+            # topos fonts
+            for top in axs_topos:
+                top.title.set_fontsize(10)
+                # top.set_title('')
+
+        fig.set_label('')
+        fig.legends = []
+        ax_tfce.legend().set_visible(False)
+
+        # TFCE Plot
+        if time_topos is None:
+            cluster_sums = clusters_mask[coeff].sum(axis=0)
+            # Find the index corresponding to the maximum sum within the given time limits
+            suggested_topo_idx = np.argmax(cluster_sums)
+            time_plot = grand_avg[coeff].times[suggested_topo_idx]
+        elif isinstance(time_topos, list):
+            time_plots = time_topos
+            time_plot = time_plots[coeff]  # For highlighting a specific time.
+        elif isinstance(time_topos, float) or isinstance(time_topos, int):
+            time_plot = time_topos
+
+        ax_frp.axvline(time_plot, ls="--", color="k", lw=1)
+        ax_frp.axvline(0, ls="-", color="k", lw=.9)
+        ax_tfce.tick_params(axis='both', labelsize=12)
+        ax_tfce.axvline(time_plot, ls="--", color="k", lw=1)
+        ax_tfce.axvline(0, ls="-", color="k", lw=.9)
+
+        # Greys
+        greys_cmap = plt.cm.get_cmap('Greys')
+        colors_plot = greys_cmap(np.linspace(0, 1, 256))
+        # Adjust the luminance values to make the colormap darker
+        colors_plot[:, :3] *= 0.6  # Multiply RGB values by 0.7 to darken them
+        custom_cmap = colors.ListedColormap(colors_plot)
+        # title = 'TFCE p-value'# with alpha level={pval_threshold}'
+        grand_avg[coeff].plot_image(cmap='RdBu_r', mask=clusters_mask[coeff], mask_style='mask', mask_alpha=0.5,
+                                titles=None, axes=ax_tfce, show=False, xlim=xlim, mask_cmap=custom_cmap, colorbar=False)
+
+        if plot_total_sig_chs:
+            total_sig_chs = clusters_mask[coeff].sum(axis=0)
+            ax_tfce_twin = ax_tfce.twinx()
+            ax_tfce_twin.plot(grand_avg[coeff].times,total_sig_chs, color='black')
+            ax_tfce_twin.set_ylabel('Significant Channels')
+            ax_tfce_twin.set_ylim(-5, max_sig_chs)
+            ax_tfce_twin.tick_params(axis='y', labelsize=8)
+
+        # clean tfce axis
+        ax_tfce.set_title('')
+        if jump != 1:
+            # clean all but the first
+            # ax_frp.set_yticklabels([])
+            ax_tfce.set_yticklabels([])
+            ax_tfce.set_ylabel('')
+            ax_frp.set_ylabel('')
+            if plot_total_sig_chs:
+                ax_tfce_twin.set_yticklabels([])
+                ax_tfce_twin.set_ylabel('')
+
+        times = grand_avg[coeff].times
+        ix_plot = np.argmin(np.abs(time_plot - times))
+
+        coeff_data = grand_avg[coeff].get_data()
+        topo, cm = mne.viz.plot_topomap(
+            coeff_data[:, ix_plot], pos=grand_avg[coeff].info, axes=ax_tfce_topo, show=False, vlim=vlims_tfce_topo,  # vlim=(-max_coef, max_coef)
+            mask=clusters_mask[coeff][:, ix_plot], mask_params=dict(marker='o', markerfacecolor='w', markeredgecolor='grey',
+                                                             linewidth=0, markersize=2), contours=4, cmap='RdBu_r')
+        if vlims_tfce_topo[0] and vlims_tfce_topo[1]:
+            v1 = np.linspace(vlims_tfce_topo[0], vlims_tfce_topo[1], 5, endpoint=True)
+        else:
+            v1 = (coeff_data[:, ix_plot].min(), coeff_data[:, ix_plot].max())
+        clb = fig.colorbar(topo, cax=ax_tfce_topo_cb, ticks=v1)
+
+        # Define the formatting function
+        def format_ticks(value, pos):
+            return f'{value * 1e6:.1f}'
+
+        clb.ax.yaxis.set_major_formatter(FuncFormatter(format_ticks))
+        clb.ax.yaxis.set_tick_params(labelsize=7)  # Adjust font size here
+
+        # Set feature title
+        ax_tfce_topo.set_title(coeff, fontsize=12)
+        ax_tfce_topo_cb.set_title(f'A.U.', fontsize=12)  # title
+        ax_tfce_topo.set_xlabel("%s ms" % round(time_plot, 2))
+        ax_tfce_topo.title.set_size(10)
+
+        ax_frp.set_title('')
+    ch = fig.get_children()
+    for ax in ch:
+        childs = ax.get_children()
+        for c in childs:
+            if isinstance(c, plt.Text):
+                if '(64' in c.get_text():
+                    c.remove()
+
+    if save_fig:
+        if not fname:
+            fname = 'GA_features'
+        save.fig(fig=fig, path=fig_path, fname=fname)
+
+    return fig
 
 
 def global_mean_con(subject, mean_global_con, subject_code=None, save_fig=False, fig_path=None, fname=None):
