@@ -49,137 +49,202 @@ def define_events_from_annot(subject, meg_data, epoch_id, epoch_keys=None):
 
     print('Defining events')
     onset_times = None
-    if epoch_keys is None:
+    if 'fix' in epoch_id or 'sac' in epoch_id or 'pur' in epoch_id:
+        if 'fix' in epoch_id:
+            # Load df of events
+            metadata = subject.fixations()
 
-        if 'CF' == epoch_id:
-            # Get task onset times
-            drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.exp_times['cf_start'] + drive_onset_time - meg_data.first_time]
-            onset_description = ['CF_onset'] * len(onset_times)
-            task_duration = [exp_info.DA_duration] * len(onset_times)
+        if 'sac' in epoch_id:
+            # Load df of events
+            metadata = subject.saccades()
 
-            # Add annotations to MEG data
-            stim_annotations = mne.Annotations(onset=onset_times,
-                                               duration=task_duration,
-                                               description=onset_description
-                                               )
+        if 'pur' in epoch_id:
+            # Load df of events
+            metadata = subject.pursuits()
 
-            meg_data_copy = meg_data.copy()
-            meg_data_copy.set_annotations(stim_annotations)
+        events = np.zeros((len(metadata), 3))
 
-            # Get events from annotations
-            events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+        # Make events array
+        events[:, 0] = round((metadata['onset'] + meg_data.first_time) * meg_data.info['sfreq'], 0)  # Convert seconds to samples
+        events[:, 2] = 1
+        events = events.astype(int)
+        event_id = {np.str_(epoch_id): 1}
 
-            # Define description to epoch data
-            epoch_keys = ['CF_onset']
+    else:
+        if epoch_keys is None:
 
-        elif 'DA1' == epoch_id:
-            # Get task onset times as Excel times + 'drive' annotation time (Joaco's decision CHECK PLEASE) Changed to one long epoch
-            # drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            # onset_times = [time + drive_onset_time for time in subject.da_times['DA times']]
-            drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.da_times['DA times'][0] + drive_onset_time - meg_data.first_time]
+            if 'CF' == epoch_id:
+                # Get task onset times
+                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
+                onset_times = [subject.exp_times['cf_start'] + drive_onset_time - meg_data.first_time]
+                onset_description = ['CF_onset'] * len(onset_times)
+                task_duration = [exp_info.DA_duration] * len(onset_times)
 
-            onset_description = ['DA_onset'] * len(onset_times)
-            task_duration = [exp_info.DA_duration] * len(onset_times)
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
 
-            # Add annotations to MEG data
-            stim_annotations = mne.Annotations(onset=onset_times,
-                                               duration=task_duration,
-                                               description=onset_description
-                                               )
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
 
-            meg_data_copy = meg_data.copy()
-            meg_data_copy.set_annotations(stim_annotations)
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
 
-            # Get events from annotations
-            events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+                # Define description to epoch data
+                epoch_keys = ['CF_onset']
 
-            # Define description to epoch data
-            epoch_keys = ['DA_onset']
+            elif 'DA1' == epoch_id:
+                # Get task onset times as Excel times + 'drive' annotation time (Joaco's decision CHECK PLEASE) Changed to one long epoch
+                # drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
+                # onset_times = [time + drive_onset_time for time in subject.da_times['DA times']]
+                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
+                onset_times = [subject.da_times['DA times'][0] + drive_onset_time - meg_data.first_time]
 
-        elif 'DAall' == epoch_id:
-            drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.da_times['DA times'] + drive_onset_time - meg_data.first_time]
+                onset_description = ['DA_onset'] * len(onset_times)
+                task_duration = [exp_info.DA_duration] * len(onset_times)
 
-            onset_description = ['DAall'] * len(onset_times)
-            task_duration = [exp_info.DA_duration] * len(onset_times)
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
 
-            # Add annotations to MEG data
-            stim_annotations = mne.Annotations(onset=onset_times,
-                                               duration=task_duration,
-                                               description=onset_description
-                                               )
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
 
-            meg_data_copy = meg_data.copy()
-            meg_data_copy.set_annotations(stim_annotations)
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
 
-            # Get events from annotations
-            events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+                # Define description to epoch data
+                epoch_keys = ['DA_onset']
 
-            # Define description to epoch data
-            epoch_keys = ['DAall']
+            elif 'DAall' == epoch_id:
+                onset_times = np.array([subject.master_df['symbol_onset_time'] - meg_data.first_time]).squeeze()
 
-        elif 'DAfull' == epoch_id:
-            drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [subject.da_times['DA times'] + drive_onset_time - meg_data.first_time]
+                onset_description = ['DAall'] * len(onset_times)
+                task_duration = [exp_info.DA_duration] * len(onset_times)
 
-            # Create events for all time points during the DA duration
-            sfreq = meg_data.info['sfreq']
-            events_list = []
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
 
-            for onset in onset_times:
-                # Convert onset time to sample index
-                onset_sample = int(onset * sfreq)
-                # Convert duration to number of samples
-                duration_samples = int(exp_info.DA_duration * sfreq)
-                # Create events for all samples in the duration
-                for sample_offset in range(duration_samples):
-                    events_list.append([onset_sample + sample_offset, 0, 1])
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
 
-            events = np.array(events_list)
-            event_id = {'DAfull': 1}
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
 
-            # Define description to epoch data
-            epoch_keys = ['DAfull']
+                # Define description to epoch data
+                epoch_keys = ['DAall']
 
-        elif 'baseline' == epoch_id:  # Baseline is from drive start to cf start
-            # Get task onset times as Excel times + 'drive' annotation time
-            drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-            onset_times = [drive_onset_time  - meg_data.first_time]
+            elif 'DAfull' == epoch_id:
+                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
+                onset_times = [subject.da_times['DA times'] + drive_onset_time - meg_data.first_time]
 
-            onset_description = ['drive_onset'] * len(onset_times)
-            task_duration = [subject.exp_times['cf_start']] * len(onset_times)  # cf time in excel file is relative to drive start.
+                # Create events for all time points during the DA duration
+                sfreq = meg_data.info['sfreq']
+                events_list = []
 
-            # Add annotations to MEG data
-            stim_annotations = mne.Annotations(onset=onset_times,
-                                               duration=task_duration,
-                                               description=onset_description
-                                               )
+                for onset in onset_times:
+                    # Convert onset time to sample index
+                    onset_sample = int(onset * sfreq)
+                    # Convert duration to number of samples
+                    duration_samples = int(exp_info.DA_duration * sfreq)
+                    # Create events for all samples in the duration
+                    for sample_offset in range(duration_samples):
+                        events_list.append([onset_sample + sample_offset, 0, 1])
 
-            meg_data_copy = meg_data.copy()
-            meg_data_copy.set_annotations(stim_annotations)
+                events = np.array(events_list)
+                event_id = {'DAfull': 1}
 
-            # Get events from annotations
-            events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+                # Define description to epoch data
+                epoch_keys = ['DAfull']
 
-            # Define description to epoch data
-            epoch_keys = ['drive_onset']
+            elif 'left_but' == epoch_id:
+                master_df = subject.master_df.loc[subject.master_df['resp_label'] == 1]
+                onset_times = np.array([master_df['symbol_onset_time'] + master_df['reaction_time'] - meg_data.first_time]).squeeze()
+
+                onset_description = ['left_but'] * len(master_df)
+                task_duration = [0] * len(onset_times)
+
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
+
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
+
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+
+                # Define description to epoch data
+                epoch_keys = ['left_but']
+
+            elif 'right_but' == epoch_id:
+                master_df = subject.master_df.loc[subject.master_df['resp_label'] == 4]
+                onset_times = np.array([master_df['symbol_onset_time'] + master_df['reaction_time'] - meg_data.first_time]).squeeze()
+
+                onset_description = ['right_but'] * len(master_df)
+                task_duration = [0] * len(onset_times)
+
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
+
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
+
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+
+                # Define description to epoch data
+                epoch_keys = ['right_but']
+
+            elif 'baseline' == epoch_id:  # Baseline is from drive start to cf start
+                # Get task onset times as Excel times + 'drive' annotation time
+                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
+                onset_times = [drive_onset_time  - meg_data.first_time]
+
+                onset_description = ['drive_onset'] * len(onset_times)
+                task_duration = [subject.exp_times['cf_start']] * len(onset_times)  # cf time in excel file is relative to drive start.
+
+                # Add annotations to MEG data
+                stim_annotations = mne.Annotations(onset=onset_times,
+                                                   duration=task_duration,
+                                                   description=onset_description
+                                                   )
+
+                meg_data_copy = meg_data.copy()
+                meg_data_copy.set_annotations(stim_annotations)
+
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
+
+                # Define description to epoch data
+                epoch_keys = ['drive_onset']
+
+            else:
+                # Get events from annotations
+                events, event_id = mne.events_from_annotations(meg_data, verbose=False)
+                # events[:, 0] = events[:, 0] - functions_general.find_nearest(meg_data.times, meg_data.first_time)[0]  # Adjust event times to start from 0
+
+                # Get epoch keys from epoch_id
+                epoch_keys = epoch_id.split('+')
 
         else:
             # Get events from annotations
             events, event_id = mne.events_from_annotations(meg_data, verbose=False)
-            # events[:, 0] = events[:, 0] - functions_general.find_nearest(meg_data.times, meg_data.first_time)[0]  # Adjust event times to start from 0
 
-            # Get epoch keys from epoch_id
-            epoch_keys = epoch_id.split('+')
-
-    else:
-        # Get events from annotations
-        events, event_id = mne.events_from_annotations(meg_data, verbose=False)
-
-    # Get events and ids matching selection
-    metadata, events, event_id = mne.epochs.make_metadata(events=events, event_id=event_id, row_events=epoch_keys, tmin=0, tmax=0, sfreq=meg_data.info['sfreq'])
+        # Get events and ids matching selection
+        metadata, events, event_id = mne.epochs.make_metadata(events=events, event_id=event_id, row_events=epoch_keys, tmin=0, tmax=0, sfreq=meg_data.info['sfreq'])
 
     return metadata, events, event_id, onset_times
 
@@ -630,25 +695,37 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, from_df, bad_anno
         var_name_2 = var_name.split('-')[1]
         var_name = var_name.split('-')[0]
 
-    # Define events
-    if from_df:
-        metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=var_name)
+    if var_name in ['steering', 'gas', 'brake']:
+        meg_params = {'data_type': 'processed'}
+        raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params)
+        input_array = raw.get_data(picks=var_name)[0, :]
     else:
-        metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=var_name)
-
-    # Make input arrays as 0
-    input_array = np.zeros(len(meg_data.times))
-    # Get events samples index
-    evt_idxs = events[:, 0] - int(meg_data.first_time * meg_data.info['sfreq'])
-    # Set those indexes as 1 or as variable
-    if secondary_variable:
-        var_name = f'{var_name}-{var_name_2}'  # Overwrite varname to add in corresponding dictionary key
-        if var_name_2 == 'item' or var_name_2 == 'on_mirror':
-            input_array[evt_idxs] = np.where((metadata_sup[var_name_2].fillna(0).to_numpy() != 0), 1, 0)
+        # Define events
+        if from_df:
+            metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=var_name)
         else:
-            input_array[evt_idxs] = metadata_sup[var_name_2].to_numpy()
-    else:
-        input_array[evt_idxs] = 1
+            metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=var_name)
+
+        # Make input arrays as 0
+        input_array = np.zeros(len(meg_data.times))
+        # Get events samples index
+        evt_idxs = events[:, 0] - int(meg_data.first_time * meg_data.info['sfreq'])
+        # Set those indexes as 1 or as variable
+        if secondary_variable:
+            if var_name_2 == 'on_mirror':
+                input_array[evt_idxs] = metadata[var_name_2].astype(int)
+            if var_name_2 == 'stimulus_present':
+                input_array[evt_idxs] = metadata[var_name_2].astype(int)
+            if '_X_' in var_name_2:
+                var_name_21 = var_name_2.split('_X_')[0]
+                var_name_22 = var_name_2.split('_X_')[1]
+                input_array = input_arrays[f'{var_name}-{var_name_21}'] * input_arrays[f'{var_name}-{var_name_22}']
+            else:
+                input_array[evt_idxs] = metadata[var_name_2].to_numpy()
+            var_name = f'{var_name}-{var_name_2}'  # Overwrite varname to add in corresponding dictionary key
+        else:
+            input_array[evt_idxs] = 1
+
     # Exclude bad annotations
     input_array = input_array * bad_annotations_array
     # Save to all input arrays dictionary
@@ -697,10 +774,8 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
     return rf
 
 
-def load_input_array_feature(feature, trial_params, meg_params, subj_path, use_saved_data=True):
-    fname_var = (f"{feature}_mss{trial_params.get('mss')}_corrans{trial_params.get('corrans')}_"
-                 f"tgtpres{trial_params.get('tgtpres')}_trialdur{trial_params.get('trialdur')}_"
-                 f"evtdur{trial_params.get('evtdur')}_array.pkl")
+def load_input_array_feature(feature, meg_params, subj_path, use_saved_data=True):
+    fname_var = (f"{feature}_array.pkl")
 
     if meg_params.get('downsample'):
         fname_var = fname_var.replace('_array.pkl', f'_{meg_params.get("downsample")}_array.pkl')
@@ -736,7 +811,7 @@ def compute_trf(subject, meg_data, trial_params, trf_params, meg_params, feature
     input_arrays = {}
     subj_path = paths.save_path + f'TRF/{subject.subject_id}/'
     for feature in features:
-        feature_data, fname_var = load_input_array_feature(feature=feature, trial_params=trial_params, meg_params=meg_params, subj_path=subj_path, use_saved_data=use_saved_data)
+        feature_data, fname_var = load_input_array_feature(feature=feature, meg_params=meg_params, subj_path=subj_path, use_saved_data=use_saved_data)
         if isinstance(feature_data, np.ndarray):
             input_arrays[feature] = feature_data
         else:
@@ -755,10 +830,9 @@ def compute_trf(subject, meg_data, trial_params, trf_params, meg_params, feature
         # iterate over regions
         for chs_subset in all_chs_regions:
             # Use only regions in channels id, or all in case of chs_id == 'mag'
-            if chs_subset in meg_params['chs_id'] or meg_params['chs_id'] == 'mag':
-                print(f'Fitting mTRF for region {chs_subset}')
-                rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=trf_params['tmin'], tmax=trf_params['tmax'], alpha=alpha, fit_power=trf_params['fit_power'],
-                                                             model_input=model_input, chs_id=chs_subset, standarize=trf_params['standarize'], n_jobs=4)
+            print(f'Fitting mTRF for region {chs_subset}')
+            rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=trf_params['tmin'], tmax=trf_params['tmax'], alpha=alpha, fit_power=trf_params['fit_power'],
+                                                         model_input=model_input, chs_id=chs_subset, standarize=trf_params['standarize'], n_jobs=4)
     # One region
     else:
         rf = fit_mtrf(meg_data=meg_data, tmin=trf_params['tmin'], tmax=trf_params['tmax'], alpha=alpha, fit_power=trf_params['fit_power'],
