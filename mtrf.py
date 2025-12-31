@@ -22,30 +22,28 @@ else:
     plt.ioff()
 
 #-----  Parameters -----#
-trial_params = {
-                'evt_from_df': False,
-                }
+trial_params = {}
 
-meg_params = {'chs_id': 'mag_z',
-              'band_id': None,
+meg_params = {'chs_id': 'mag',
+              'band_id': 'Beta',
               'data_type': 'ICA_annot'
               }
 
 # TRF parameters
 trf_params = {
     'input_features': {
-        # 'fix': ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present'],# _X_ for intersection between features
+        # 'fix': None,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
         # 'sac': None,
         # 'pur': None,
         # 'DAall': None,
-        'steering': None,
-        'gas': None,
-        'brake': None,
+        'steering_std_der': None,
+        'gas_std_der': None,
+        'brake_std_der': None,
         'left_but': None,
         'right_but': None
     },  # Select features (events)
     'standarize': False,
-    'fit_power': False,
+    'fit_power': True,
     'alpha': None,
     'tmin': -3,
     'tmax': 3,
@@ -99,7 +97,7 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
 
     else:
         # Compute TRF for defined features
-        rf = functions_analysis.compute_trf(subject=subject, meg_data=meg_data, trial_params=trial_params, trf_params=trf_params, meg_params=meg_params,
+        rf = functions_analysis.compute_trf(subject=subject, meg_data=meg_data, trf_params=trf_params, meg_params=meg_params,
                                             features=list(feature_evokeds.keys()), alpha=trf_params['alpha'], use_saved_data=use_saved_data, save_data=save_data,
                                             trf_path=trf_path, trf_fname=trf_fname)
 
@@ -112,9 +110,11 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
 grand_avg = functions_analysis.trf_grand_average(feature_evokeds=feature_evokeds, trf_params=trf_params, meg_params=meg_params,
                                                  display_figs=display_figs, save_fig=save_fig, fig_path=fig_path)
 
-
 joint_ylims = None
 # Plot features figure
 fname = f'GA_features_TFCE'
+
+for feature in grand_avg.keys():
+    grand_avg[feature].pick(functions_general.pick_chs(chs_id='_z', info=grand_avg[feature].info))
 
 fig = plot_general.plot_trf_features(grand_avg=grand_avg, joint_ylims=joint_ylims, time_topos=0, top_topos=False, save_fig=save_fig, fig_path=fig_path, fname=fname)
