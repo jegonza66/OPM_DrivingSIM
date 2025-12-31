@@ -66,3 +66,12 @@ os.makedirs(plots_path, exist_ok=True)
 
 sources_path = main_path + 'Save/Source_Data/'
 os.makedirs(sources_path, exist_ok=True)
+
+dynemo_generic_data_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Generic_Data")
+os.makedirs(dynemo_generic_data_path, exist_ok=True)
+
+dynemo_infered_results_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Infered_Results")
+os.makedirs(dynemo_infered_results_path, exist_ok=True)
+
+dynemo_spectra_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Spectra")
+os.makedirs(dynemo_spectra_path, exist_ok=True)
