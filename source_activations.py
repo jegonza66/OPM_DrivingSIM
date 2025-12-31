@@ -36,7 +36,7 @@ trial_params = {'epoch_id': 'fix',  # use'+' to mix conditions (red+blue)
                 'evt_from_df': True
                 }
 
-meg_params = {'chs_id': 'mag_z',
+meg_params = {'chs_id': 'mag',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
@@ -69,11 +69,11 @@ run_comparison = True
 force_fsaverage = False
 model_name = 'lcmv'
 surf_vol = 'surface'
-ico = 5
-spacing = 5  # Only for volume source estimation
+ico = 4
+spacing = 10  # Only for volume source estimation
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
 source_power = False
-source_estimation = 'trf'  # 'epo' / 'evk' / 'cov' / 'trf'
+source_estimation = 'evk'  # 'epo' / 'evk' / 'cov' / 'trf'
 visualize_alignment = False
 active_times = None
 
@@ -190,9 +190,9 @@ for param in param_values.keys():
 
             # Source estimation path
             if surf_vol == 'volume':
-                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}_{bline_mode_subj}_{source_estimation}/"
+                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
             elif surf_vol == 'surface':
-                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_{pick_ori}_{bline_mode_subj}_{source_estimation}/"
+                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
 
             # Plots save paths
             fig_path = paths.plots_path + f"Source_Space_{meg_params['data_type']}/" + run_path + source_model_path
@@ -246,7 +246,7 @@ for param in param_values.keys():
             src = fwd['src']
 
             # Get epochs and evoked
-            try:
+            if os.path.exists(epochs_save_path + epochs_data_fname) and use_saved_data:
                 # Load epochs
                 epochs = mne.read_epochs(epochs_save_path + epochs_data_fname)
                 # Pick channels
@@ -272,12 +272,12 @@ for param in param_values.keys():
                     evoked = epochs.average()
                     evoked.pick(picks)
 
-            except:
+            else:
                 # Load MEG
                 meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
 
                 # Pick channels
-                picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=evoked.info)
+                picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=meg_data.info)
                 meg_data.pick(picks)
 
                 # Suppress warning about SSP projection
