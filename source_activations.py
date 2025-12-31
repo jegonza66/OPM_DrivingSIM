@@ -69,8 +69,8 @@ run_comparison = True
 force_fsaverage = False
 model_name = 'lcmv'
 surf_vol = 'surface'
-ico = 4
-spacing = 10  # Only for volume source estimation
+spacing = 'ico4'
+pos = 10  # Only for volume source estimation
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
 source_power = False
 source_estimation = 'evk'  # 'epo' / 'evk' / 'cov' / 'trf'
@@ -114,11 +114,11 @@ os.environ["SUBJECTS_DIR"] = subjects_dir
 
 # Get Source space for default subject
 if surf_vol == 'volume':
-    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_volume_ico{ico}_{int(spacing)}-src.fif'
+    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_volume_{spacing}_{int(pos)}-src.fif'
 elif surf_vol == 'surface':
-    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_surface_ico{ico}-src.fif'
+    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_surface_{spacing}-src.fif'
 elif surf_vol == 'mixed':
-    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_mixed_ico{ico}_{int(spacing)}-src.fif'
+    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_mixed_{spacing}_{int(pos)}-src.fif'
 
 src_default = mne.read_source_spaces(fname_src)
 
@@ -190,9 +190,9 @@ for param in param_values.keys():
 
             # Source estimation path
             if surf_vol == 'volume':
-                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
+                source_model_path = f"{model_name}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
             elif surf_vol == 'surface':
-                source_model_path = f"{model_name}_{surf_vol}_ico{ico}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
+                source_model_path = f"{model_name}_{surf_vol}_{spacing}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
 
             # Plots save paths
             fig_path = paths.plots_path + f"Source_Space_{meg_params['data_type']}/" + run_path + source_model_path
@@ -227,7 +227,7 @@ for param in param_values.keys():
 
             # Data filenames
             epochs_data_fname = f'Subject_{subject.subject_id}_epo.fif'
-            fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_band{meg_params['band_id']}_{surf_vol}_ico{ico}_spacing{spacing}_{pick_ori}-lcmv.h5'
+            fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_band{meg_params['band_id']}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}-lcmv.h5'
 
             # Plot alignment visualization
             if visualize_alignment:
@@ -237,11 +237,11 @@ for param in param_values.keys():
             sources_path_subject = paths.sources_path + subject.subject_id
             # Load forward model
             if surf_vol == 'volume':
-                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_volume_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_volume_{spacing}_{int(pos)}-fwd.fif'
             elif surf_vol == 'surface':
-                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_surface_ico{ico}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_surface_{spacing}-fwd.fif'
             elif surf_vol == 'mixed':
-                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_mixed_ico{ico}_{int(spacing)}-fwd.fif'
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_mixed_{spacing}_{int(pos)}-fwd.fif'
             fwd = mne.read_forward_solution(fname_fwd)
             src = fwd['src']
 
