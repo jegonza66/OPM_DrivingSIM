@@ -17,7 +17,7 @@ from mni_to_atlas import AtlasBrowser
 exp_info = setup.exp_info()
 
 # ---------- Epoch Data ---------- #
-def define_events_from_annot(subject, meg_data, epoch_id, epoch_keys=None):
+def define_events(subject, meg_data, epoch_id, epoch_keys=None):
     """
     Define events based on annotations in MEG data.
 
@@ -249,63 +249,63 @@ def define_events_from_annot(subject, meg_data, epoch_id, epoch_keys=None):
     return metadata, events, event_id, onset_times
 
 
-def define_events_from_df(subject, meg_data, epoch_id, epoch_keys=None):
-    """
-    Define events based on annotations in MEG data.
-
-    Parameters
-    ----------
-    subject : instance of subect class defined in setup.py
-        The object containing all subject information and parameters.
-    meg_data : instance of mne.io.Raw
-        The raw MEG data.
-    epoch_id : str
-        The identifier for the epoch, which can include multiple sub-ids separated by '+'.
-    epoch_keys : list of str, optional
-        Specific event keys to use. If None, all events matching the epoch_id will be used.
-
-    Returns
-    -------
-    metadata : pandas.DataFrame
-        Metadata for the epochs.
-    events : array, shape (n_events, 3)
-        The events array.
-    events_id : dict
-        The dictionary of event IDs.
-
-    Raises
-    ------
-    ValueError
-        If no valid epoch_ids are provided.
-    """
-
-    print('Defining events')
-    onset_times = None
-    # Get events from annotations
-    events, event_id = mne.events_from_annotations(meg_data, verbose=False)
-
-    if 'fix' in epoch_id:
-        # Load df of events
-        metadata = subject.fixations()
-
-    if 'sac' in epoch_id:
-        # Load df of events
-        metadata = subject.saccades()
-
-    if 'pur' in epoch_id:
-        # Load df of events
-        metadata = subject.pursuits()
-
-    events = np.zeros((len(metadata), 3))
-
-    # Make events array
-    events[:, 0] = round((metadata['onset'] + meg_data.first_time) * meg_data.info['sfreq'], 0)  # Convert seconds to samples
-    events[:, 2] = 1
-    events = events.astype(int)
-
-    event_id = {np.str_(epoch_id): 1}
-
-    return metadata, events, event_id, onset_times
+# def define_events_from_df(subject, meg_data, epoch_id, epoch_keys=None):
+#     """
+#     Define events based on annotations in MEG data.
+#
+#     Parameters
+#     ----------
+#     subject : instance of subect class defined in setup.py
+#         The object containing all subject information and parameters.
+#     meg_data : instance of mne.io.Raw
+#         The raw MEG data.
+#     epoch_id : str
+#         The identifier for the epoch, which can include multiple sub-ids separated by '+'.
+#     epoch_keys : list of str, optional
+#         Specific event keys to use. If None, all events matching the epoch_id will be used.
+#
+#     Returns
+#     -------
+#     metadata : pandas.DataFrame
+#         Metadata for the epochs.
+#     events : array, shape (n_events, 3)
+#         The events array.
+#     events_id : dict
+#         The dictionary of event IDs.
+#
+#     Raises
+#     ------
+#     ValueError
+#         If no valid epoch_ids are provided.
+#     """
+#
+#     print('Defining events')
+#     onset_times = None
+#     # Get events from annotations
+#     events, event_id = mne.events_from_annotations(meg_data, verbose=False)
+#
+#     if 'fix' in epoch_id:
+#         # Load df of events
+#         metadata = subject.fixations()
+#
+#     if 'sac' in epoch_id:
+#         # Load df of events
+#         metadata = subject.saccades()
+#
+#     if 'pur' in epoch_id:
+#         # Load df of events
+#         metadata = subject.pursuits()
+#
+#     events = np.zeros((len(metadata), 3))
+#
+#     # Make events array
+#     events[:, 0] = round((metadata['onset'] + meg_data.first_time) * meg_data.info['sfreq'], 0)  # Convert seconds to samples
+#     events[:, 2] = 1
+#     events = events.astype(int)
+#
+#     event_id = {np.str_(epoch_id): 1}
+#
+#     return metadata, events, event_id, onset_times
 
 
 def epoch_data(subject, epoch_id, meg_data, tmin, tmax, from_df, baseline=(0, 0), reject=None, save_data=False, epochs_save_path=None, epochs_data_fname=None):
@@ -353,10 +353,10 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, from_df, baseline=(0, 0)
         raise ValueError('Please provide path and filename to save data. If not, set save_data to false.')
 
     # Define events
-    if from_df:
-        metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
-    else:
-        metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
+    # if from_df:
+    #     metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
+    # else:
+    metadata, events, event_id, onset_times = define_events(subject=subject, meg_data=meg_data, epoch_id=epoch_id)
 
     # Reject based on channel amplitude
     if reject == False:
@@ -686,7 +686,7 @@ def get_bad_annot_array(meg_data, subj_path, fname, save_var=True):
     return bad_annotations_array
 
 
-def make_mtrf_input(input_arrays, var_name, subject, meg_data, from_df, bad_annotations_array,
+def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_array,
                     subj_path, fname, save_var=True):
 
     secondary_variable = False
@@ -695,16 +695,28 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, from_df, bad_anno
         var_name_2 = var_name.split('-')[1]
         var_name = var_name.split('-')[0]
 
-    if var_name in ['steering', 'gas', 'brake']:
+    # if var_name in ['steering', 'gas', 'brake', 'steering_std', 'gas_std', 'brake_std']:
+    if 'steering' in var_name or 'gas' in var_name or 'brake' in var_name:
+
+        feature_name = var_name.replace('_std', '').replace('_der', '')
         meg_params = {'data_type': 'processed'}
         raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params)
-        input_array = raw.get_data(picks=var_name)[0, :]
+        input_array = raw.get_data(picks=feature_name)[0, :]
+
+        if '_der' in var_name:
+            # Compute derivative
+            input_array = np.gradient(input_array)
+
+        if '_std' in var_name:
+            # Standarize variable
+            input_array = (input_array - np.mean(input_array)) / np.std(input_array)
+
     else:
         # Define events
-        if from_df:
-            metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=var_name)
-        else:
-            metadata, events, event_id, onset_times = define_events_from_annot(subject=subject, meg_data=meg_data, epoch_id=var_name)
+        # if from_df:
+        #     metadata, events, event_id, onset_times = define_events_from_df(subject=subject, meg_data=meg_data, epoch_id=var_name)
+        # else:
+        metadata, events, event_id, onset_times = define_events(subject=subject, meg_data=meg_data, epoch_id=var_name)
 
         # Make input arrays as 0
         input_array = np.zeros(len(meg_data.times))
@@ -789,7 +801,7 @@ def load_input_array_feature(feature, meg_params, subj_path, use_saved_data=True
     else:
         return False, fname_var
 
-def compute_trf(subject, meg_data, trial_params, trf_params, meg_params, features, alpha=None, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
+def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
                 use_saved_data=True, save_data=False, trf_path=None, trf_fname=None):
 
     if not alpha:
@@ -817,7 +829,7 @@ def compute_trf(subject, meg_data, trial_params, trf_params, meg_params, feature
         else:
             print(f'Computing input array for {feature}...')
             input_arrays = make_mtrf_input(input_arrays=input_arrays, var_name=feature,
-                                           subject=subject, meg_data=meg_data, from_df=trial_params['evt_from_df'],
+                                           subject=subject, meg_data=meg_data,
                                            bad_annotations_array=bad_annotations_array,
                                            subj_path=subj_path, fname=fname_var)
 
