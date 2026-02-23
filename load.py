@@ -92,7 +92,7 @@ def preproc_meg_data(subject_id, task, preload=False):
     """
 
     # Subject preprocessed data path
-    file_path = pathlib.Path(os.path.join(paths.preproc_path, f'{task}_{subject_id}_bad_ch_removed_meg.fif'))
+    file_path = pathlib.Path(os.path.join(paths.processed_path, f'{task}_{subject_id}_bad_ch_removed_meg.fif'))
 
     # Try to load preprocessed data
     try:
