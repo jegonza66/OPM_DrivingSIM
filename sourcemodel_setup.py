@@ -13,7 +13,7 @@ exp_info = setup.exp_info()
 
 
 # --------- Setup ---------#
-task = 'DA'
+task = 'DA2'
 # Define surface or volume source space
 chs_id = 'mag_z'
 surf_vol = 'surface'
@@ -23,7 +23,7 @@ pos = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
 
-meg_params = {'data_type': 'ICA'}
+meg_params = {'data_type': 'processed'}
 
 # Define Subjects_dir as Freesurfer output folder
 mri_path = paths.mri_path

@@ -27,7 +27,7 @@ else:
 
 #-----  Select frequency band -----#
 #----- Parameters -----#
-task = 'DA'
+task = 'DA2'
 # Trial selection
 trial_params = {'epoch_id': 'fix',  # use'+' to mix conditions (red+blue)
                 'reject': False,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value

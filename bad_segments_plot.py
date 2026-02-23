@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 # Load experiment info
 exp_info = setup.exp_info()
-task = 'DA'
+task = 'DA2'
 data_type = 'RAW_annot'
 sds = 2
 for subj_num, subject_id in enumerate(exp_info.subjects_ids):

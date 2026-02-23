@@ -6,7 +6,7 @@ import load
 import functions_preproc
 
 
-meg_params = {'data_type': 'ICA'}
+meg_params = {'data_type': 'processed'}
 
 # Load experiment info
 exp_info = setup.exp_info()
@@ -55,4 +55,4 @@ for subject_id in exp_info.subjects_ids:
     # meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
 
     # ---------------- Save preprocessed data ----------------#
-    functions_preproc.save(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA')
+    functions_preproc.save(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA2')

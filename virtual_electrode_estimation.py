@@ -42,7 +42,7 @@ else:
     plt.ioff()
 
 # Task and trial parameters
-task = 'DA'
+task = 'DA2'
 trial_params = {
     'epoch_id': 'sac',  # epoch condition
     'reject': None,  # rejection criteria

@@ -30,7 +30,7 @@ plot_individuals = True
 save_data = True
 
 # Trial parameters
-task = 'DA'
+task = 'DA2'
 epoch_ids = ['saccade']  # Epoch identifier, defining 2 values on this list will compute connectivity for all epoch ids and then do the substraction
 reject = False  # Peak to peak amplitude epoch rejection
 

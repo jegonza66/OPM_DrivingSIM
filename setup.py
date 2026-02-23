@@ -65,8 +65,9 @@ class exp_info:
         # Select subject
         self.subjects_ids = [
             # '17976',
-            '17643',
-            '10925'
+            # '17643',
+            # '10925',
+            '18619'
         ]
 
         # Subjects bad channels
@@ -89,7 +90,8 @@ class exp_info:
         # Distance to the screen during the experiment (Fake info)
         self.screen_distance = {'17976': 62,
                                 '17643': 60,
-                                '10925': 60
+                                '10925': 60,
+                                '18619': 62
                                 }
 
         # Screen width
@@ -133,7 +135,8 @@ class exp_info:
         # Subjects groups (Fake info)
         self.group = {'17976': 'balanced',
                       '17643': 'balanced',
-                      '10925': 'balanced'
+                      '10925': 'balanced',
+                      '18619': 'balanced'
                       }
 
         # Duration of the DA in seconds
@@ -142,13 +145,15 @@ class exp_info:
         # Tracked eye (Fake info)
         self.tracked_eye = {'17976': 'left',
                             '17643': 'left',
-                            '10925': 'right'
+                            '10925': 'right',
+                            '18619': 'left'
                             }
 
         # ET channels name [Gaze x, Gaze y, Pupils] (Fake info)
         self.et_channel_names = {'17976': ['meg_x', 'meg_y', 'meg_pupil'],
                                  '17643': ['meg_x', 'meg_y', 'meg_pupil'],
-                                 '10925': ['meg_x', 'meg_y', 'meg_pupil']
+                                 '10925': ['meg_x', 'meg_y', 'meg_pupil'],
+                                 '18619': ['Xpos_left', 'Ypos_left', 'Pupil_left']
                                  }
 
         # Trigger channel name (Fake info)
@@ -169,6 +174,7 @@ class exp_info:
         self.line_noise_freqs = {'17976': (50, 57, 100, 109, 150, 200, 250, 300),
                                  '17643': (50, 57, 100, 109, 150, 200, 250, 300),
                                  '10925': (50, 57, 100, 109, 150, 200, 250, 300),
+                                 '18619': (50, 57, 100, 109, 150, 200, 250, 300)
                                  }
 
 
@@ -209,6 +215,7 @@ class analysis_parameters:
         self.pupil_thresh = {'17976': -2.6,
                              '17643': -2.6,
                              '10925': -2.6,
+                             '18619': -2.6
                              }
 
         # Et samples shift for ET-MEG alignment
@@ -217,7 +224,8 @@ class analysis_parameters:
         # Trial reject parameter based on MEG peak to peak amplitude (Fake info)
         self.reject_amp = {'17976': 5e-12,
                            '17643': 5e-12,
-                           '10925': 5e-12
+                           '10925': 5e-12,
+                           '18619': 5e-12
                            }
 
 
