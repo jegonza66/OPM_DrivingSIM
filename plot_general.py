@@ -1352,7 +1352,7 @@ def add_task_lines(y_text, fontsize=10, color='white', ax=None):
                  va='center', fontweight='bold')
 
 
-def bad_segments(meg_data, bad_segments, sds, ax, fig):
+def bad_segments(meg_data, bad_segments, sds, ax=None, fig=None):
     if not ax:
         fig, ax = plt.subplots(figsize=(12, 2))
 
