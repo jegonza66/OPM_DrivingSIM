@@ -64,35 +64,34 @@ class exp_info:
 
         # Select subject
         self.subjects_ids = [
+            '10925',
+            '16432',
+            '17359',
+            '17643',
+            '17734',
             # '17976',
-            # '17643',
-            # '10925',
-            '18619'
+            '18616',
+            '18619',
+            # '18630'
         ]
 
         # Subjects bad channels
         self.bad_channels = {
                              }
 
-        # # Taken from Driving Experiment info v0_1
-        # self.exp_times = {'17976': {'cf_start': 59, 'cf_end': 172, 'da_start': 172, 'da_end': 535},
-        #                   '17643': {'cf_start': 49, 'cf_end': 161, 'da_start': 161, 'da_end': 526},
-        #                   '10925': {'cf_start': 55, 'cf_end': 168, 'da_start': 161, 'da_end': 546}
-        #                   }
-
-        # Dataframe containing DA symbols start times for each subject
-        # self.da_times = {key: pd.read_csv(paths.bh_path + f'DA_EVENT_TIME_1.csv')[key] for key in self.subjects_ids}
-
-        # Dataframe containing DA symbols start times for each subject
-        # master_df = pd.read_csv(paths.exp_path + f'master_df.csv')
-        # self.master_df = {key: master_df.loc[master_df['part_id'] == int(key)] for key in self.subjects_ids}
 
         # Distance to the screen during the experiment (Fake info)
-        self.screen_distance = {'17976': 62,
-                                '17643': 60,
-                                '10925': 60,
-                                '18619': 62
-                                }
+        self.screen_distance = {
+            '16432': 91,
+            '17359': 70,
+            '17734': 74,
+            '18616': 87,
+            '18619': 80,
+            '18630': 80,
+            '17976': 80,
+            '17643': 91,
+            '10925': 90,
+        }
 
         # Screen width
         self.screen_size = 56.8
@@ -109,6 +108,7 @@ class exp_info:
         # Mirrors center
         self.left_mirror_center = [250, 900]
 
+        # Left mirror pixels range
         self.left_mirror_px = {'x': [self.left_mirror_center[0] - self.mirrors_size[0]/2,
                                      self.left_mirror_center[0] + self.mirrors_size[0]/2],
                                'y': [self.left_mirror_center[1] - self.mirrors_size[1]/2,
@@ -120,41 +120,50 @@ class exp_info:
                                 'y': [self.left_mirror_center[1] - self.mirrors_size[1]/2,
                                       self.left_mirror_center[1] + self.mirrors_size[1]/2]}
 
-        # Left mirror pixels range
-        # self.left_mirror_px = {'x':[(self.screen_res[0] - self.video_res[0])/2,
-        #                             (self.screen_res[0] - self.video_res[0])/2 + self.mirrors_size_px[0]],
-        #                        'y':[(self.screen_res[1] + self.video_res[1])/2 - self.mirrors_size_px[1],
-        #                             (self.screen_res[1] + self.video_res[1])/2]}
-        #
-        # # Right mirror pixels range
-        # self.right_mirror_px = {'x':[(self.screen_res[0] + self.video_res[0])/2 - self.mirrors_size_px[0],
-        #                             (self.screen_res[0] + self.video_res[0])/2],
-        #                        'y':[(self.screen_res[1] + self.video_res[1])/2 - self.mirrors_size_px[1],
-        #                             (self.screen_res[1] + self.video_res[1])/2]}
 
         # Subjects groups (Fake info)
-        self.group = {'17976': 'balanced',
-                      '17643': 'balanced',
-                      '10925': 'balanced',
-                      '18619': 'balanced'
-                      }
+        self.group = {
+            '16432': 'balanced',
+            '17359': 'balanced',
+            '17734': 'balanced',
+            '18616': 'balanced',
+            '18619': 'balanced',
+            '18630': 'balanced',
+            '17976': 'balanced',
+            '17643': 'balanced',
+            '10925': 'balanced',
+        }
 
         # Duration of the DA in seconds
         self.DA_duration = 4.5
 
         # Tracked eye (Fake info)
-        self.tracked_eye = {'17976': 'left',
-                            '17643': 'left',
-                            '10925': 'right',
-                            '18619': 'left'
-                            }
+        self.tracked_eye = {
+            '16432': 'left',
+            '17359': 'left',
+            '17734': 'left',
+            '18616': 'left',
+            '18619': 'left',
+            '18630': 'left',
+            '17976': 'left',
+            '17643': 'left',
+            '10925': 'right',
+        }
 
         # ET channels name [Gaze x, Gaze y, Pupils] (Fake info)
-        self.et_channel_names = {'17976': ['meg_x', 'meg_y', 'meg_pupil'],
-                                 '17643': ['meg_x', 'meg_y', 'meg_pupil'],
-                                 '10925': ['meg_x', 'meg_y', 'meg_pupil'],
-                                 '18619': ['Xpos_left', 'Ypos_left', 'Pupil_left']
-                                 }
+        self.et_channel_names = {
+            '16432': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '17359': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '17734': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '18616': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '18619': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '18630': ['Xpos_left', 'Ypos_left', 'Pupil_left'],
+            '17976': ['meg_x', 'meg_y', 'meg_pupil'],
+            '17643': ['meg_x', 'meg_y', 'meg_pupil'],
+            '10925': ['meg_x', 'meg_y', 'meg_pupil'],
+        }
+
+        self.subjects_scaled_et = ['17976', '17643', '10925']
 
         # Trigger channel name (Fake info)
         self.trig_ch = 'UPPT002'
@@ -171,11 +180,17 @@ class exp_info:
         self.DAC_delay = 10
 
         # Notch filter line noise frequencies (Fake info)
-        self.line_noise_freqs = {'17976': (50, 57, 100, 109, 150, 200, 250, 300),
-                                 '17643': (50, 57, 100, 109, 150, 200, 250, 300),
-                                 '10925': (50, 57, 100, 109, 150, 200, 250, 300),
-                                 '18619': (50, 57, 100, 109, 150, 200, 250, 300)
-                                 }
+        self.line_noise_freqs = {
+            '16432': (50, 57, 100, 109, 150, 200, 250, 300),
+            '17359': (50, 57, 100, 109, 150, 200, 250, 300),
+            '17734': (50, 57, 100, 109, 150, 200, 250, 300),
+            '18616': (50, 57, 100, 109, 150, 200, 250, 300),
+            '18619': (50, 57, 100, 109, 150, 200, 250, 300),
+            '18630': (50, 57, 100, 109, 150, 200, 250, 300),
+            '17976': (50, 57, 100, 109, 150, 200, 250, 300),
+            '17643': (50, 57, 100, 109, 150, 200, 250, 300),
+            '10925': (50, 57, 100, 109, 150, 200, 250, 300),
+        }
 
 
 class analysis_parameters:
@@ -212,21 +227,33 @@ class analysis_parameters:
         self.end_interval_samples = 24
 
         # Pupil size threshold to consider missing signal (Fake info)
-        self.pupil_thresh = {'17976': -2.6,
-                             '17643': -2.6,
-                             '10925': -2.6,
-                             '18619': -2.6
-                             }
+        self.pupil_thresh = {
+            '16432': -2.6,
+            '17359': -2.6,
+            '17734': -2.6,
+            '18616': -2.6,
+            '18619': -2.6,
+            '18630': -2.6,
+            '17976': -2.6,
+            '17643': -2.6,
+            '10925': -2.6,
+        }
 
         # Et samples shift for ET-MEG alignment
         self.et_samples_shift = {}
 
         # Trial reject parameter based on MEG peak to peak amplitude (Fake info)
-        self.reject_amp = {'17976': 5e-12,
-                           '17643': 5e-12,
-                           '10925': 5e-12,
-                           '18619': 5e-12
-                           }
+        self.reject_amp = {
+            '16432': 5e-12,
+            '17359': 5e-12,
+            '17734': 5e-12,
+            '18616': 5e-12,
+            '18619': 5e-12,
+            '18630': 5e-12,
+            '17976': 5e-12,
+            '17643': 5e-12,
+            '10925': 5e-12,
+        }
 
 
 class subject():
@@ -495,3 +522,10 @@ class subject():
             raise ValueError(f'Error loading pursuits DataFrame for subject {self.subject_id}: {e}')
 
         return pursuits_data
+
+class all_subjects:
+
+    def __init__(self, all_fixations, all_saccades, all_bh_data, all_rt, all_corr_ans, all_mss):
+        self.subject_id = 'All_Subjects'
+        self.fixations = all_fixations
+        self.saccades = all_saccades
