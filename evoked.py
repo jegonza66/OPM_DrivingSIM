@@ -29,7 +29,7 @@ else:
 #----- Parameters -----#
 task = 'DA2'
 # Trial selection
-trial_params = {'epoch_id': 'fix',  # use'+' to mix conditions (red+blue)
+trial_params = {'epoch_id': 'pur',  # use'+' to mix conditions (red+blue)
                 'reject': False,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value
                 'evt_from_df': True # If True, use events from df, otherwise use events from annotations
                 }
@@ -37,7 +37,7 @@ meg_params = {'chs_id': 'mag_z',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
-              'data_type': 'ICA',  # 'raw', 'ICA', 'processed', 'tsss'
+              'data_type': 'processed',  # 'raw', 'ICA', 'processed', 'tsss'
               }
 
 l_freq, h_freq = functions_general.get_freq_band(band_id=meg_params['band_id'])
@@ -99,7 +99,7 @@ for subject_id in exp_info.subjects_ids:
 
             # Epoch data
             epochs, events, onset_times = functions_analysis.epoch_data(subject=subject, epoch_id=trial_params['epoch_id'], meg_data=meg_data,
-                                                           tmin=tmin, tmax=tmax, from_df=trial_params['evt_from_df'], save_data=save_data,
+                                                           tmin=tmin, tmax=tmax, save_data=save_data,
                                                            epochs_save_path=epochs_save_path,
                                                            epochs_data_fname=epochs_data_fname, reject=reject,
                                                            baseline=baseline)
@@ -127,7 +127,7 @@ for subject_id in exp_info.subjects_ids:
 
 
 # Compute grand average
-grand_avg = mne.grand_average(evokeds, interpolate_bads=False)
+grand_avg = mne.grand_average(evokeds, interpolate_bads=True)
 
 # Save grand average
 if save_data:
