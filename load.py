@@ -201,7 +201,7 @@ def filtered_data(subject_id, band_id, task, method='iir', data_type='ICA', prel
 def ica_data(subject_id, task, preload=True):
 
     # ICA data path
-    data_path = paths.ica_path + f'{task}_{subject_id}_raw_ica_hfc_meg.fif'
+    data_path = paths.ica_path + f'sub-{subject_id}_{task}_4.2_raw_hfc_ica_meg.fif'
 
     # Try to load ica data
     try:
