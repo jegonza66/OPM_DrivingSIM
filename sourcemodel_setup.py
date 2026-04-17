@@ -15,10 +15,10 @@ exp_info = setup.exp_info()
 # --------- Setup ---------#
 task = 'DA2'
 # Define surface or volume source space
-chs_id = 'mag_z'
+chs_id = 'mag'
 surf_vol = 'surface'
-force_fsaverage = True
-spacing = 'ico4'
+force_fsaverage = False
+spacing = 'ico5'
 pos = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
@@ -39,6 +39,7 @@ visualize_alignment = False
 
 # Iterate over subjects
 for subject_id in exp_info.subjects_ids + ['fsaverage']:
+# for subject_id in ['18630']:
 
     if subject_id != 'fsaverage':
 
@@ -54,7 +55,8 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
             subject_code = 'fsaverage'
             dig = False
             # Check mean distances if already run transformation
-            trans_path = os.path.join(subjects_dir, subject_code, 'bem', f'{subject_code}-trans.fif')
+            # This should actually load the fsaverage transformation
+            trans_path = os.path.join(paths.mri_path, 'freesurfer', subject_id, 'bem', f'{subject_id}-trans.fif')
             trans = mne.read_trans(trans_path)
             print('Distance from head origin to MEG origin: %0.1f mm'
                   % (1000 * np.linalg.norm(meg_data.info['dev_head_t']['trans'][:3, 3])))
@@ -66,46 +68,29 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
             dig = True
             # Check if subject has MRI data
             fs_subj_path = os.path.join(subjects_dir, subject_id)
+
             if len(os.listdir(fs_subj_path)):
                 try:
                     # Check mean distances if already run transformation
-                    trans_path = os.path.join(paths.sources_path, subject_code, f'{subject_code}-trans.fif')
+                    trans_path = os.path.join(paths.mri_path, 'freesurfer', subject_id, 'bem', f'{subject_id}-trans.fif')
                     trans = mne.read_trans(trans_path)
                     print('Distance from head origin to MEG origin: %0.1f mm'
                           % (1000 * np.linalg.norm(meg_data.info['dev_head_t']['trans'][:3, 3])))
                     print('Distance from head origin to MRI origin: %0.1f mm'
                           % (1000 * np.linalg.norm(trans['trans'][:3, 3])))
                 except:
-                    # Load digitalization file
-                    dig_path_subject = dig_path + subject_id
-                    dig_filepath = dig_path_subject + '/Model_Mesh_5m_headers.pos'
-                    pos = pd.read_table(dig_filepath, index_col=0)
-
-                    # Get fiducials from dig
-                    nasion = pos.loc[pos.index == 'nasion ']
-                    lpa = pos.loc[pos.index == 'left ']
-                    rpa = pos.loc[pos.index == 'right ']
-
-                    # Get head points
-                    pos.drop(['nasion ', 'left ', 'right '], inplace=True)
-                    pos_array = pos.to_numpy()
-
-                    # Make montage
-                    dig_montage = mne.channels.make_dig_montage(nasion=nasion.values.ravel(), lpa=lpa.values.ravel(),
-                                                                rpa=rpa.values.ravel(), hsp=pos_array,
-                                                                coord_frame='unknown')
-
                     # Make info object
                     dig_info = meg_data.pick('meg').info.copy()
-                    dig_info.set_montage(montage=dig_montage)
+                    # dig_info.set_montage(montage=dig_montage)
 
                     # Save raw instance with info
                     info_raw = mne.io.RawArray(np.zeros((dig_info['nchan'], 1)), dig_info)
+                    dig_path_subject = dig_path + subject_id
                     dig_info_path = dig_path_subject + '/info_raw.fif'
                     info_raw.save(dig_info_path, overwrite=True)
 
                     # Align and save fiducials and transformation files to FreeSurfer/subject/bem folder
-                    mne.gui.coregistration(subject=subject_id, subjects_dir=subjects_dir, inst=None,
+                    mne.gui.coregistration(subject=subject_id, subjects_dir=subjects_dir, inst=dig_info_path,
                                            block=True)
 
             # If subject has no MRI data
@@ -113,20 +98,20 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
                 subject_code = 'fsaverage'
                 dig = False
                 # Check mean distances if already run transformation
-                trans_path = os.path.join(subjects_dir, subject_code, 'bem', f'{subject_code}-trans.fif')
+                trans_path = os.path.join(paths.mri_path, 'freesurfer', subject_id, 'bem', f'{subject_id}-trans.fif')
                 trans = mne.read_trans(trans_path)
                 print('Distance from head origin to MEG origin: %0.1f mm'
                       % (1000 * np.linalg.norm(meg_data.info['dev_head_t']['trans'][:3, 3])))
                 print('Distance from head origin to MRI origin: %0.1f mm'
                       % (1000 * np.linalg.norm(trans['trans'][:3, 3])))
+    else:
+        subject_code = 'fsaverage'
+        dig = False
+
     if visualize_alignment:
         # Load subject
         subject = setup.subject(subject_id=subject_id)
         plot_general.mri_meg_alignment(subject=subject, subject_code=subject_code, dig=dig, subjects_dir=subjects_dir)
-
-    else:
-        subject_code = 'fsaverage'
-        dig = False
 
     # --------- Bem model ---------#
     # Source data and models path
