@@ -308,7 +308,7 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
 #     return metadata, events, event_id, onset_times
 
 
-def epoch_data(subject, epoch_id, meg_data, tmin, tmax, from_df, baseline=(0, 0), reject=None, save_data=False, epochs_save_path=None, epochs_data_fname=None):
+def epoch_data(subject, epoch_id, meg_data, tmin, tmax, baseline=(0, 0), reject=None, save_data=False, epochs_save_path=None, epochs_data_fname=None):
     """
     Epoch the MEG data based on the provided parameters.
 
@@ -367,10 +367,10 @@ def epoch_data(subject, epoch_id, meg_data, tmin, tmax, from_df, baseline=(0, 0)
         reject = dict(mag=subject.params.reject_amp)
 
     # Epoch data
-    epochs = mne.Epochs(raw=meg_data, events=events, event_id=event_id, tmin=tmin, tmax=tmax, reject=None, proj=False,
+    epochs = mne.Epochs(raw=meg_data.copy().pick('mag'), events=events, event_id=event_id, tmin=tmin, tmax=tmax, reject=None, proj=False,
                         event_repeated='drop', metadata=metadata, preload=True, baseline=baseline, reject_by_annotation=True)
     # Drop bad epochs
-    epochs.drop_bad()
+    # epochs.drop_bad()
 
     if save_data:
         # Save epoched data
