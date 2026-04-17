@@ -603,7 +603,6 @@ def mri_meg_alignment(subject, subject_code, dig, subjects_dir=os.path.join(path
     # Path to MRI <-> HEAD Transformation (Saved from coreg)
     trans_path = os.path.join(subjects_dir, subject_code, 'bem', f'{subject_code}-trans.fif')
     fids_path = os.path.join(subjects_dir, subject_code, 'bem', f'{subject_code}-fiducials.fif')
-    dig_info_path = paths.opt_path + subject.subject_id + '/info_raw.fif'
 
     # Load raw meg data with dig info
     import load
@@ -1160,6 +1159,11 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
             # Set initial time to plot first initial time
             initial_time_plot = initial_time[0]
 
+        # if None, get time of max activation (not automatic for 3d plots)
+        elif initial_time == None:
+            initial_time_idx = np.abs(stc.data).max(axis=0).argmax()
+            initial_time_plot = stc.times[initial_time_idx]
+            initial_time = stc.times[initial_time_idx]
         # if float just plot at selected time
         else:
             initial_time_plot = initial_time
