@@ -1,12 +1,9 @@
-import os
-import mne
 import setup
-import paths
 import load
 import functions_preproc
 
 
-meg_params = {'data_type': 'processed'}
+meg_params = {'data_type': 'ICA'}
 
 # Load experiment info
 exp_info = setup.exp_info()
@@ -25,12 +22,19 @@ for subject_id in exp_info.subjects_ids:
     print('\nGetting ET channels data from MEG')
     et_channels_meg = stim_data.get_data(picks=exp_info.et_channel_names[subject_id])
 
+    # ---------------- Reescale ET channels ----------------#
+    if subject_id not in exp_info.subjects_scaled_et:
+        et_channels_meg[0], et_channels_meg[1] = functions_preproc.reescale_et_channels(meg_gazex_data_raw=et_channels_meg[0], meg_gazey_data_raw=et_channels_meg[1])
+
     # ---------------- Blinks removal ----------------#
     # Define intervals around blinks to also fill with nan. Due to conversion noise from square signal
     et_channels_meg = functions_preproc.blinks_to_nan(meg_data=meg_data, et_channels_meg=et_channels_meg)
 
     # ---------------- Remove saccades and fixations annotations ---------------- #
-    meg_data = functions_preproc.remove_annotations(meg_data=meg_data, subject=subject, exp_info=exp_info)
+    meg_data = functions_preproc.remove_annotations(meg_data=meg_data)
+
+    # ---------------- Add experiment end annotation ---------------- #
+    meg_data = functions_preproc.exp_end_annotate(meg_data=meg_data)
 
     # ---------------- Fixations and saccades detection ----------------#
     fixations, saccades, pursuits = functions_preproc.fixations_saccades_detection(meg_data=meg_data,
@@ -52,7 +56,7 @@ for subject_id in exp_info.subjects_ids:
     # meg_data = functions_preproc.interpolate_bad_channels(subject_id, meg_data, exp_info)
 
     # ---------------- Add scaled ET channels back to MEG data ----------------#
-    # meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
+    meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
 
     # ---------------- Save preprocessed data ----------------#
-    functions_preproc.save(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA2')
+    functions_preproc.save_data(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA2')
