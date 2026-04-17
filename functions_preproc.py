@@ -4,10 +4,7 @@ import pandas as pd
 import os
 import math
 import mne
-import scipy.signal as sgn
-import functions_general
 import paths
-import save
 
 
 def reescale_et_channels(meg_gazex_data_raw, meg_gazey_data_raw, minvoltage=-5, maxvoltage=5, minrange=-0.2, maxrange=1.2,
@@ -65,7 +62,7 @@ def reescale_et_channels(meg_gazex_data_raw, meg_gazey_data_raw, minvoltage=-5, 
 def blinks_to_nan(meg_data, et_channels_meg):
     print('Removing blinks using MEG annotations')
 
-    # Copy data to avoid modifying in place
+    # These are views into et_channels_meg, modifying them modifies the original array
     meg_gazex_data_clean = et_channels_meg[0]
     meg_gazey_data_clean = et_channels_meg[1]
     meg_pupils_data_clean = et_channels_meg[2]
@@ -73,7 +70,7 @@ def blinks_to_nan(meg_data, et_channels_meg):
     sfreq = meg_data.info['sfreq']
     n_samples = len(meg_gazex_data_clean)
 
-    # Find blink annotations
+    # Find blink annotations and set data to NaN
     if hasattr(meg_data, 'annotations') and meg_data.annotations is not None:
         for onset, duration, desc in zip(meg_data.annotations.onset, meg_data.annotations.duration, meg_data.annotations.description):
             if desc.lower() == 'blink':
@@ -92,24 +89,24 @@ def blinks_to_nan(meg_data, et_channels_meg):
     return et_channels_meg
 
 
-def DAC_samples(et_channels_meg, exp_info, sfreq):
+# def DAC_samples(et_channels_meg, exp_info, sfreq):
+#
+#     print('Compensating DAC delay')
+#     time_delay = exp_info.DAC_delay
+#     samples_delay = int(round(time_delay / 1000 * sfreq, 0))
+#
+#     for i in range(len(et_channels_meg)):
+#         et_channels_meg[i] = np.concatenate((et_channels_meg[i][samples_delay:], np.zeros(samples_delay)))
+#
+#     # Get separate data from et channels
+#     meg_gazex_data_raw = et_channels_meg[0]
+#     meg_gazey_data_raw = et_channels_meg[1]
+#     meg_pupils_data_raw = et_channels_meg[2]
+#
+#     return meg_gazex_data_raw, meg_gazey_data_raw, meg_pupils_data_raw
 
-    print('Compensating DAC delay')
-    time_delay = exp_info.DAC_delay
-    samples_delay = int(round(time_delay / 1000 * sfreq, 0))
 
-    for i in range(len(et_channels_meg)):
-        et_channels_meg[i] = np.concatenate((et_channels_meg[i][samples_delay:], np.zeros(samples_delay)))
-
-    # Get separate data from et channels
-    meg_gazex_data_raw = et_channels_meg[0]
-    meg_gazey_data_raw = et_channels_meg[1]
-    meg_pupils_data_raw = et_channels_meg[2]
-
-    return meg_gazex_data_raw, meg_gazey_data_raw, meg_pupils_data_raw
-
-
-def remove_annotations(meg_data, subject, exp_info):
+def remove_annotations(meg_data):
     """
     Remove annotations with names containing 'saccade' and 'fixation' from MEG data.
 
@@ -117,10 +114,6 @@ def remove_annotations(meg_data, subject, exp_info):
     ----------
     meg_data : instance of mne.io.Raw
         The raw MEG data containing annotations.
-    subject : instance of subject class
-        Subject object (for consistency with function signature).
-    exp_info : instance of exp_info class
-        Experiment information object (for consistency with function signature).
 
     Returns
     -------
@@ -170,6 +163,27 @@ def remove_annotations(meg_data, subject, exp_info):
     return meg_data
 
 
+def exp_end_annotate(meg_data):
+    gas = meg_data.copy().pick('Gas').get_data()
+    brake = meg_data.copy().pick('Brake').get_data()
+
+    gas_diff = np.diff(gas)
+    brake_diff = np.diff(brake)
+
+    # Find first index from which both gas and brake diffs are 0 onwards (experiment end)
+    combined = np.abs(gas_diff.flatten()) + np.abs(brake_diff.flatten())
+    last_active_idx = np.where(combined != 0)[0][-1]
+    # +1 to get the first zero index in diff, +1 again to account for np.diff offset
+    exp_end_idx = last_active_idx + 2
+    exp_end_time = meg_data.times[exp_end_idx] + meg_data.first_time
+
+    # Add experiment end annotation to MEG data
+    exp_end_annot = mne.Annotations(onset=[exp_end_time], duration=[0], description=['exp_end'])
+    meg_data.set_annotations(meg_data.annotations + exp_end_annot)
+
+    return meg_data
+
+
 def fixations_saccades_detection(meg_data, et_channels_meg, subject, exp_info, sac_max_vel=1500, fix_max_amp=1.5,
                                  screen_resolution=1920, force_run=False):
 
@@ -206,7 +220,7 @@ def fixations_saccades_detection(meg_data, et_channels_meg, subject, exp_info, s
             # Run Remodnav not considering pursuit class and min fixations 100 ms
             command = (f'remodnav {fname} {out_fname} {px2deg} {sfreq} --savgol-length {0.0195} --min-pursuit-duration {0.1} '
                        f'--max-pso-duration {0.0} --min-saccade-duration {0.01} --min-fixation-duration {0.05} --max-vel {5000} '
-                       f'--pursuit-velthresh {1.5}')
+                       f'--pursuit-velthresh {2}')
             os.system(command)
 
             # Read results file with detections
@@ -459,20 +473,30 @@ def interpolate_bad_channels(subject_id, meg_data, exp_info):
 def add_et_channels(meg_data, et_channels_meg, exp_info, subject_id):
     #---------------- Add scaled data to meg data ----------------#
     print('\nSaving scaled et data to meg raw data structure')
+
+    # New channels names
+    new_channels_names = ['ET_x', 'ET_y', 'ET_pupils']
     # make new raw structure from et channels only
     raw_et = mne.io.RawArray(et_channels_meg, meg_data.copy().pick(exp_info.et_channel_names[subject_id]).info)
     # change channel names
-    for ch_name, new_name in zip(raw_et.ch_names, ['ET_x', 'ET_y', 'ET_pupils']):
+    for ch_name, new_name in zip(raw_et.ch_names, new_channels_names):
         raw_et.rename_channels({ch_name: new_name})
+
+    # Change channel type from 'stim' to 'misc' to prevent NaN/scaling
+    # interference with other stim channels during plotting
+    raw_et.set_channel_types({ch: 'misc' for ch in raw_et.ch_names})
 
     # save to original raw structure (requires to load data)
     print('Loading MEG data')
     meg_data.load_data()
-    print('Adding new ET channels')
-    meg_data.add_channels([raw_et], force_update_info=True)
 
-    # Drop the et channels
-    meg_data.drop_channels(exp_info.et_channel_names[subject_id])
+    # Drop the et channels if they exist
+    meg_data.drop_channels(new_channels_names, on_missing='ignore')
+
+    print('Adding new ET channels')
+    meg_data.add_channels([raw_et], force_update_info=False)
+
+
 
     return meg_data
 
@@ -491,35 +515,34 @@ def overwrite_et_channels(meg_data, et_channels_meg, exp_info, subject_id):
     return meg_data
 
 
-def set_digitlization(subject, meg_data):
+# def set_digitlization(subject, meg_data):
+#
+#     # Load digitalization file
+#     dig_path = paths().opt_path()
+#     dig_path_subject = dig_path + subject.subject_id
+#     dig_filepath = dig_path_subject + '/Model_Mesh_5m_headers.pos'
+#     pos = pd.read_table(dig_filepath, index_col=0)
+#
+#     # Get fiducials from dig
+#     nasion = pos.loc[pos.index == 'nasion ']
+#     lpa = pos.loc[pos.index == 'left ']
+#     rpa = pos.loc[pos.index == 'right ']
+#
+#     # Get head points
+#     pos.drop(['nasion ', 'left ', 'right '], inplace=True)
+#     pos_array = pos.to_numpy()
+#
+#     # Make montage
+#     dig_montage = mne.channels.make_dig_montage(nasion=nasion.values.ravel(), lpa=lpa.values.ravel(),
+#                                                 rpa=rpa.values.ravel(), hsp=pos_array, coord_frame='unknown')
+#
+#     # Make info object
+#     meg_data.info.set_montage(montage=dig_montage)
+#
+#     return meg_data
 
-    # Load digitalization file
-    dig_path = paths().opt_path()
-    dig_path_subject = dig_path + subject.subject_id
-    dig_filepath = dig_path_subject + '/Model_Mesh_5m_headers.pos'
-    pos = pd.read_table(dig_filepath, index_col=0)
 
-    # Get fiducials from dig
-    nasion = pos.loc[pos.index == 'nasion ']
-    lpa = pos.loc[pos.index == 'left ']
-    rpa = pos.loc[pos.index == 'right ']
-
-    # Get head points
-    pos.drop(['nasion ', 'left ', 'right '], inplace=True)
-    pos_array = pos.to_numpy()
-
-    # Make montage
-    dig_montage = mne.channels.make_dig_montage(nasion=nasion.values.ravel(), lpa=lpa.values.ravel(),
-                                                rpa=rpa.values.ravel(), hsp=pos_array, coord_frame='unknown')
-
-    # Make info object
-    meg_data.info.set_montage(montage=dig_montage)
-
-    return meg_data
-
-
-
-def save(subject_id, meg_data, fixations, saccades, pursuits, task):
+def save_data(subject_id, meg_data, fixations, saccades, pursuits, task):
     """
     Save preprocessed data
     :param meg_data:
