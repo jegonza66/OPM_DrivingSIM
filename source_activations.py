@@ -31,12 +31,11 @@ else:
 #----- Parameters -----#
 task = 'DA2'
 # Trial selection
-trial_params = {'epoch_id': 'sac',  # use'+' to mix conditions (red+blue)
+trial_params = {'epoch_id': 'pur',  # use'+' to mix conditions (red+blue)
                 'reject': None,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value
-                'evt_from_df': True
                 }
 
-meg_params = {'chs_id': 'mag_z',
+meg_params = {'chs_id': 'mag',
               'band_id': (0.1, 40),
               'filter_sensors': True,
               'filter_method': 'iir',
@@ -86,7 +85,7 @@ bline_mode_ga = 'mean'
 plot_edge = 0.15
 
 # Plot
-initial_time = 0.09
+initial_time = None
 difference_initial_time = 0.3
 positive_cbar = None  # None for free determination, False to include negative values
 plot_individuals = True
@@ -226,7 +225,7 @@ for param in param_values.keys():
 
             # Data filenames
             epochs_data_fname = f'Subject_{subject.subject_id}_epo.fif'
-            fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_band{meg_params['band_id']}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}-lcmv.h5'
+            fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_band{meg_params['band_id']}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}-lcmv.h5'
 
             # Plot alignment visualization
             if visualize_alignment:
@@ -269,7 +268,7 @@ for param in param_values.keys():
                 else:
                     # Define evoked from epochs
                     evoked = epochs.average()
-                    evoked.pick(picks)
+                    # evoked.pick(picks)  # Already picked in epochs
 
             else:
                 # Load MEG
@@ -277,7 +276,8 @@ for param in param_values.keys():
 
                 # Pick channels
                 picks = functions_general.pick_chs(chs_id=meg_params['chs_id'], info=meg_data.info)
-                meg_data.pick(picks)
+                picks_all = functions_general.pick_chs(chs_id='mag', info=meg_data.info)  # Pick all magnetometers for defining epochs
+                meg_data.pick(picks_all)
 
                 # Suppress warning about SSP projection
                 meg_data.info.normalize_proj()
@@ -288,7 +288,7 @@ for param in param_values.keys():
 
                 else:
                     # Epoch data
-                    epochs, events, onset_times = functions_analysis.epoch_data(subject=subject, epoch_id=run_params['epoch_id'], from_df=trial_params['evt_from_df'],
+                    epochs, events, onset_times = functions_analysis.epoch_data(subject=subject, epoch_id=run_params['epoch_id'],
                                                                                      meg_data=meg_data, tmin=run_params['tmin'], tmax=run_params['tmax'],
                                                                                      baseline=run_params['baseline'], save_data=save_data,
                                                                                      epochs_save_path=epochs_save_path,
@@ -305,13 +305,13 @@ for param in param_values.keys():
                 filters = mne.beamformer.read_beamformer(sources_path_subject + fname_lcmv)
             else:
                 try:
-                    meg_data
+                    meg_data.pick(picks)
                 except:
                     #  Make filters
                     meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
                     meg_data.pick(picks)
                     # Suppress warning about SSP projection
-                    meg_data.info.normalize_proj()
+                    # meg_data.info.normalize_proj()
 
                 data_cov = mne.compute_raw_covariance(meg_data)
                 filters = beamformer.make_lcmv(info=meg_data.info, forward=fwd, data_cov=data_cov, reg=0.05, pick_ori=pick_ori)
