@@ -163,7 +163,7 @@ def remove_annotations(meg_data):
     return meg_data
 
 
-def exp_end_annotate(meg_data):
+def exp_end_crop(meg_data):
     gas = meg_data.copy().pick('Gas').get_data()
     brake = meg_data.copy().pick('Brake').get_data()
 
@@ -175,11 +175,18 @@ def exp_end_annotate(meg_data):
     last_active_idx = np.where(combined != 0)[0][-1]
     # +1 to get the first zero index in diff, +1 again to account for np.diff offset
     exp_end_idx = last_active_idx + 2
-    exp_end_time = meg_data.times[exp_end_idx] + meg_data.first_time
+    exp_end_idx = min(exp_end_idx, len(meg_data.times) - 1)
+    
+    exp_end_time = meg_data.times[exp_end_idx]
 
-    # Add experiment end annotation to MEG data
-    exp_end_annot = mne.Annotations(onset=[exp_end_time], duration=[0], description=['exp_end'])
-    meg_data.set_annotations(meg_data.annotations + exp_end_annot)
+    if exp_end_time >= 1450:
+        exp_end_time = 1450
+
+    print(f'Experiment end detected at time {exp_end_time:.2f} seconds')
+    
+    # Crop meg data at experiment end time (crop uses times relative to raw.times, not affected by first_time)
+    meg_data.crop(tmax=exp_end_time)
+    print(f'MEG data cropped to {meg_data.times[-1]:.2f} seconds')
 
     return meg_data
 
@@ -220,7 +227,7 @@ def fixations_saccades_detection(meg_data, et_channels_meg, subject, exp_info, s
             # Run Remodnav not considering pursuit class and min fixations 100 ms
             command = (f'remodnav {fname} {out_fname} {px2deg} {sfreq} --savgol-length {0.0195} --min-pursuit-duration {0.1} '
                        f'--max-pso-duration {0.0} --min-saccade-duration {0.01} --min-fixation-duration {0.05} --max-vel {5000} '
-                       f'--pursuit-velthresh {2}')
+                       f'--pursuit-velthresh {3}')
             os.system(command)
 
             # Read results file with detections
