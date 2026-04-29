@@ -11,7 +11,7 @@ import plot_general
 exp_info = setup.exp_info()
 
 #----- Save data and display figures -----#
-use_saved_data = True
+use_saved_data = False
 save_data = True
 save_fig = True
 display_figs = True
@@ -26,17 +26,19 @@ trial_params = {}
 
 meg_params = {'chs_id': 'mag_z',
               'band_id': None,
-              'data_type': 'ICA'
+              'data_type': 'processed',
+              'filter_sensors': True,
               }
 
 # TRF parameters
 trf_params = {
     'input_features': {
-        'fix': None,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
-        'sac': None,
-        'pur': None,
+        # 'fix': None,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
+        # 'sac': None,
+        # 'pur': None,
         # 'DAall': None,
-        # 'steering_std_der': None,
+        # 'Steering_std_der': None,
+        'audio_env_std': None,
         # 'gas_std_der': None,
         # 'brake_std_der': None,
         # 'left_but': None,
@@ -48,7 +50,7 @@ trf_params = {
     'tmin': -0.2,
     'tmax': 0.5,
 }
-trf_params['baseline'] = (trf_params['tmin'], -0.05)
+trf_params['baseline'] = (trf_params['tmin'], trf_params['tmax'])
 
 # Figure path
 fig_path = paths.plots_path + (f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{trf_params['input_features']}"
