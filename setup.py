@@ -192,6 +192,8 @@ class exp_info:
             '10925': (50, 57, 100, 109, 150, 200, 250, 300),
         }
 
+        self.master_df = pd.read_csv(os.path.join(paths.bh_path, 'DA_EVENT_TIME_1.csv'))
+
 
 class analysis_parameters:
     """
