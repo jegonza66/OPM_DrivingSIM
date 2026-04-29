@@ -10,6 +10,7 @@ import save
 import functions_general
 from mne.decoding import ReceptiveField
 from scipy import stats as stats
+import scipy.signal
 from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc
 from mni_to_atlas import AtlasBrowser
 
@@ -53,10 +54,20 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         if 'fix' in epoch_id:
             # Load df of events
             metadata = subject.fixations()
+            # Filter by preceding saccade class if specified
+            if 'short' in epoch_id:
+                metadata = metadata[metadata['prev_sac_class'] == 'short'].reset_index(drop=True)
+            elif 'long' in epoch_id:
+                metadata = metadata[metadata['prev_sac_class'] == 'long'].reset_index(drop=True)
 
         if 'sac' in epoch_id:
             # Load df of events
             metadata = subject.saccades()
+            # Filter by saccade class if specified
+            if 'short' in epoch_id:
+                metadata = metadata[metadata['sac_class'] == 'short'].reset_index(drop=True)
+            elif 'long' in epoch_id:
+                metadata = metadata[metadata['sac_class'] == 'long'].reset_index(drop=True)
 
         if 'pur' in epoch_id:
             # Load df of events
@@ -165,47 +176,45 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['DAfull']
 
             elif 'left_but' == epoch_id:
-                master_df = subject.master_df.loc[subject.master_df['resp_label'] == 1]
-                onset_times = np.array([master_df['symbol_onset_time'] + master_df['reaction_time'] - meg_data.first_time]).squeeze()
+                # Left button from button/left channel (rising edge detection)
+                meg_params_full = {'data_type': 'processed'}
+                raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
+                button_data = raw_full.get_data(picks='button/left')[0, :]
+                crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
+                onset_times = crossings / raw_full.info['sfreq']
 
-                onset_description = ['left_but'] * len(master_df)
+                onset_description = ['left_but'] * len(onset_times)
                 task_duration = [0] * len(onset_times)
 
-                # Add annotations to MEG data
                 stim_annotations = mne.Annotations(onset=onset_times,
                                                    duration=task_duration,
-                                                   description=onset_description
-                                                   )
+                                                   description=onset_description)
 
                 meg_data_copy = meg_data.copy()
                 meg_data_copy.set_annotations(stim_annotations)
 
-                # Get events from annotations
                 events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
-
-                # Define description to epoch data
                 epoch_keys = ['left_but']
 
             elif 'right_but' == epoch_id:
-                master_df = subject.master_df.loc[subject.master_df['resp_label'] == 4]
-                onset_times = np.array([master_df['symbol_onset_time'] + master_df['reaction_time'] - meg_data.first_time]).squeeze()
+                # Right button from button/right channel (rising edge detection)
+                meg_params_full = {'data_type': 'processed'}
+                raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
+                button_data = raw_full.get_data(picks='button/right')[0, :]
+                crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
+                onset_times = crossings / raw_full.info['sfreq']
 
-                onset_description = ['right_but'] * len(master_df)
+                onset_description = ['right_but'] * len(onset_times)
                 task_duration = [0] * len(onset_times)
 
-                # Add annotations to MEG data
                 stim_annotations = mne.Annotations(onset=onset_times,
                                                    duration=task_duration,
-                                                   description=onset_description
-                                                   )
+                                                   description=onset_description)
 
                 meg_data_copy = meg_data.copy()
                 meg_data_copy.set_annotations(stim_annotations)
 
-                # Get events from annotations
                 events, event_id = mne.events_from_annotations(meg_data_copy, verbose=False)
-
-                # Define description to epoch data
                 epoch_keys = ['right_but']
 
             elif 'baseline' == epoch_id:  # Baseline is from drive start to cf start
@@ -696,7 +705,7 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_a
         var_name = var_name.split('-')[0]
 
     # if var_name in ['steering', 'gas', 'brake', 'steering_std', 'gas_std', 'brake_std']:
-    if 'steering' in var_name or 'gas' in var_name or 'brake' in var_name:
+    if 'Steering' in var_name or 'Gas' in var_name or 'Brake' in var_name:
 
         feature_name = var_name.replace('_std', '').replace('_der', '')
         meg_params = {'data_type': 'processed'}
@@ -710,6 +719,54 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_a
         if '_std' in var_name:
             # Standarize variable
             input_array = (input_array - np.mean(input_array)) / np.std(input_array)
+
+    elif 'audio_env' in var_name:
+        # Audio envelope via Hilbert transform, low-pass filtered at 20 Hz
+        meg_params = {'data_type': 'processed'}
+        raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params)
+        audio_signal = raw.get_data(picks='Audio')[0, :]
+        sfreq = raw.info['sfreq']
+        analytic_signal = scipy.signal.hilbert(audio_signal)
+        input_array = np.abs(analytic_signal)
+
+        # Low-pass filter envelope at 20 Hz
+        b, a = scipy.signal.butter(4, 20, btype='low', fs=sfreq)
+        input_array = scipy.signal.filtfilt(b, a, input_array)
+
+        # Detect sustained audio intervals via rolling RMS
+        win = int(5 * sfreq)
+        rolling_power = np.convolve(input_array**2, np.ones(win)/win, mode='same')
+        rolling_rms = np.sqrt(rolling_power)
+        threshold = np.median(rolling_rms) * 1.5
+        audio_active = rolling_rms > threshold
+
+        # Find contiguous intervals, keep only those longer than 10s
+        diff = np.diff(audio_active.astype(int))
+        starts = np.where(diff == 1)[0] / sfreq
+        stops = np.where(diff == -1)[0] / sfreq
+        if audio_active[0]:
+            starts = np.concatenate([[0], starts])
+        if audio_active[-1]:
+            stops = np.concatenate([stops, [len(audio_signal) / sfreq]])
+        intervals = [(s, e) for s, e in zip(starts, stops) if (e - s) > 10]
+
+        # Zero out envelope outside detected audio intervals
+        times_arr = np.arange(len(input_array)) / sfreq
+        mask = np.zeros(len(input_array), dtype=bool)
+        for s, e in intervals:
+            mask |= (times_arr >= s) & (times_arr <= e)
+        input_array[~mask] = 0
+
+        # Threshold: silence below 0.02
+        input_array[input_array < 0.02] = 0
+
+        if '_der' in var_name:
+            input_array = np.gradient(input_array)
+
+        if '_std' in var_name:
+            input_array = (input_array - np.mean(input_array)) / np.std(input_array)
+        elif '_norm' in var_name:
+            input_array = (input_array - np.min(input_array)) / (np.max(input_array) - np.min(input_array))
 
     else:
         # Define events
@@ -971,7 +1028,7 @@ def trf_grand_average(feature_evokeds, trf_params, meg_params, display_figs=Fals
     grand_avg = {}
     for feature in feature_evokeds.keys():
         # Compute grand average
-        grand_avg[feature] = mne.grand_average(feature_evokeds[feature], interpolate_bads=False)
+        grand_avg[feature] = mne.grand_average(feature_evokeds[feature], interpolate_bads=True)
 
         # Plot
         fig = grand_avg[feature].plot(spatial_colors=True, gfp=True, show=display_figs, xlim=(trf_params['tmin'], trf_params['tmax']), titles=feature)
@@ -982,3 +1039,43 @@ def trf_grand_average(feature_evokeds, trf_params, meg_params, display_figs=Fals
             save.fig(fig=fig, fname=fname, path=fig_path)
 
     return grand_avg
+
+
+
+def evoked_to_parcellation_stc(evoked, parc, subject_code, subjects_dir, spacing):
+    """Convert label-named Evoked to a full-surface STC with parcellation coloring.
+
+    Each vertex within a label gets the label's TRF coefficient value,
+    producing uniform coloring per region in brain plots.
+    """
+    # Read the full surface source space
+    fname_src = paths.sources_path + subject_code + f'/{subject_code}_surface_{spacing}-src.fif'
+    src_full = mne.read_source_spaces(fname_src)
+
+    labels = mne.read_labels_from_annot(subject_code, parc=parc, subjects_dir=subjects_dir)
+
+    # Map Evoked channel names to data
+    ch_data = {ch: evoked.data[i] for i, ch in enumerate(evoked.ch_names)}
+
+    n_times = evoked.data.shape[1]
+    lh_verts = src_full[0]['vertno']
+    rh_verts = src_full[1]['vertno']
+
+    lh_data = np.zeros((len(lh_verts), n_times))
+    rh_data = np.zeros((len(rh_verts), n_times))
+
+    for label in labels:
+        if label.name not in ch_data:
+            continue
+        if label.hemi == 'lh':
+            mask = np.isin(lh_verts, label.vertices)
+            lh_data[mask] = ch_data[label.name]
+        else:
+            mask = np.isin(rh_verts, label.vertices)
+            rh_data[mask] = ch_data[label.name]
+
+    data = np.vstack([lh_data, rh_data])
+    stc = mne.SourceEstimate(data, vertices=[lh_verts, rh_verts],
+                             tmin=evoked.times[0],
+                             tstep=1 / evoked.info['sfreq'])
+    return stc, src_full
