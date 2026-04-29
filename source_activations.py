@@ -31,11 +31,11 @@ else:
 #----- Parameters -----#
 task = 'DA2'
 # Trial selection
-trial_params = {'epoch_id': 'pur',  # use'+' to mix conditions (red+blue)
+trial_params = {'epoch_id': 'sac_short',  # use'+' to mix conditions (red+blue)
                 'reject': None,  # None to use default {'mag': 5e-12} / False for no rejection / 'subject' to use subjects predetermined rejection value
                 }
 
-meg_params = {'chs_id': 'mag',
+meg_params = {'chs_id': 'mag_z',
               'band_id': (0.1, 40),
               'filter_sensors': True,
               'filter_method': 'iir',
@@ -67,9 +67,10 @@ run_comparison = True
 # Source estimation parameters
 force_fsaverage = False
 model_name = 'lcmv'
-surf_vol = 'surface'
+surf_vol = 'surface'  # 'surface' | 'volume' | 'mixed' | 'parcellation'
 spacing = 'ico4'
 pos = 10  # Only for volume source estimation
+parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
 pick_ori = None  # 'vector' For dipoles, 'max-power' for fixed dipoles in the direction tha maximizes output power
 source_power = False
 source_estimation = 'evk'  # 'epo' / 'evk' / 'cov' / 'trf'
@@ -118,6 +119,8 @@ elif surf_vol == 'surface':
     fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_surface_{spacing}-src.fif'
 elif surf_vol == 'mixed':
     fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_mixed_{spacing}_{int(pos)}-src.fif'
+elif surf_vol == 'parcellation':
+    fname_src = paths.sources_path + 'fsaverage' + f'/fsaverage_parcellation_{parc}-src.fif'
 
 src_default = mne.read_source_spaces(fname_src)
 
@@ -192,6 +195,8 @@ for param in param_values.keys():
                 source_model_path = f"{model_name}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
             elif surf_vol == 'surface':
                 source_model_path = f"{model_name}_{surf_vol}_{spacing}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
+            elif surf_vol == 'parcellation':
+                source_model_path = f"{model_name}_{surf_vol}_{parc}_{pick_ori}_{bline_mode_subj}_{source_estimation}_chs{meg_params['chs_id']}/"
 
             # Plots save paths
             fig_path = paths.plots_path + f"Source_Space_{meg_params['data_type']}/" + run_path + source_model_path
@@ -225,7 +230,10 @@ for param in param_values.keys():
 
             # Data filenames
             epochs_data_fname = f'Subject_{subject.subject_id}_epo.fif'
-            fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_band{meg_params['band_id']}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}-lcmv.h5'
+            if surf_vol == 'parcellation':
+                fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_band{meg_params['band_id']}_parcellation_{parc}_{pick_ori}-lcmv.h5'
+            else:
+                fname_lcmv = f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_band{meg_params['band_id']}_{surf_vol}_{spacing}_pos{pos}_{pick_ori}-lcmv.h5'
 
             # Plot alignment visualization
             if visualize_alignment:
@@ -240,6 +248,8 @@ for param in param_values.keys():
                 fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_surface_{spacing}-fwd.fif'
             elif surf_vol == 'mixed':
                 fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_mixed_{spacing}_{int(pos)}-fwd.fif'
+            elif surf_vol == 'parcellation':
+                fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{meg_params['chs_id']}_parcellation_{parc}-fwd.fif'
             fwd = mne.read_forward_solution(fname_fwd)
             src = fwd['src']
 

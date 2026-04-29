@@ -14,14 +14,15 @@ exp_info = setup.exp_info()
 
 # --------- Setup ---------#
 task = 'DA2'
-# Define surface or volume source space
-chs_id = 'mag'
-surf_vol = 'surface'
+# Define surface, volume, mixed, or parcellation source space
+chs_id = 'mag_z'
+surf_vol = 'parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation'
 force_fsaverage = False
 spacing = 'ico5'
 pos = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
+parc = 'aparc'  # Parcellation atlas (used when surf_vol='parcellation')
 
 meg_params = {'data_type': 'processed'}
 
@@ -204,4 +205,79 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         if subject_id != 'fsaverage':
             fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
             fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_mixed_{spacing}_{int(pos)}-fwd.fif'
+            mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
+
+    elif surf_vol == 'parcellation':
+        # Parcellation-based source model with dipoles only at label centroids.
+        # Yields a low-dimensional source space (~150 sources for aparc.a2009s)
+        # suitable for TRF analysis on continuous data.
+
+        # First, ensure a surface source space exists (needed to define valid vertices)
+        fname_src_surf = paths.sources_path + subject_code + f'/{subject_code}_surface_{spacing}-src.fif'
+        try:
+            src_surf = mne.read_source_spaces(fname_src_surf)
+        except:
+            src_surf = mne.setup_source_space(subject=subject_code, spacing=spacing, subjects_dir=subjects_dir)
+            mne.write_source_spaces(fname_src_surf, src_surf, overwrite=True)
+
+        # Read parcellation labels (needed for both source space and forward)
+        labels = mne.read_labels_from_annot(subject_code, parc=parc, subjects_dir=subjects_dir)
+        labels = [l for l in labels if 'unknown' not in l.name.lower() and 'medialwall' not in l.name.lower()]
+
+        # Parcellation source space
+        fname_src = paths.sources_path + subject_code + f'/{subject_code}_parcellation_{parc}-src.fif'
+        try:
+            src = mne.read_source_spaces(fname_src)
+        except:
+            # Make a copy of the surface source space to restrict
+            src = src_surf.copy()
+
+            # Find centroid vertex for each label, restricted to source space vertices
+            centroid_vertices = {0: [], 1: []}
+            for label in labels:
+                hemi_idx = 0 if label.hemi == 'lh' else 1
+                centroid = label.center_of_mass(subject=subject_code, subjects_dir=subjects_dir,
+                                                restrict_vertices=src)
+                centroid_vertices[hemi_idx].append(centroid)
+
+            # Restrict source space to only centroid vertices
+            for hemi_idx in range(2):
+                verts = np.array(sorted(centroid_vertices[hemi_idx]))
+                src[hemi_idx]['inuse'][:] = 0
+                src[hemi_idx]['inuse'][verts] = 1
+                src[hemi_idx]['nuse'] = len(verts)
+                src[hemi_idx]['vertno'] = verts
+                src[hemi_idx]['use_tris'] = np.array([], dtype=int).reshape(0, 3)
+                src[hemi_idx]['nuse_tri'] = 0
+
+            n_sources = sum(len(v) for v in centroid_vertices.values())
+            print(f'Parcellation source space: {n_sources} sources ({parc})')
+
+            # Save
+            mne.write_source_spaces(fname_src, src, overwrite=True)
+
+        # Forward model
+        if subject_id != 'fsaverage':
+            fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_parcellation_{parc}-fwd.fif'
+
+            # Compute forward from the full surface source space, then restrict
+            # to centroid vertices. Direct forward on sparse centroid source spaces
+            # can fail when vertices near the inner skull BEM surface are excluded.
+            fname_fwd_surf = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_surface_{spacing}-fwd.fif'
+            try:
+                fwd_surf = mne.read_forward_solution(fname_fwd_surf)
+            except:
+                fwd_surf = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src_surf, bem=bem)
+                mne.write_forward_solution(fname_fwd_surf, fwd_surf, overwrite=True)
+
+            # Create single-vertex labels at each parcellation centroid
+            centroid_labels = []
+            for label in labels:
+                centroid = label.center_of_mass(subject=subject_code, subjects_dir=subjects_dir,
+                                                restrict_vertices=src_surf)
+                centroid_labels.append(mne.Label([centroid], hemi=label.hemi,
+                                                name=label.name, subject=subject_code))
+
+            # Restrict forward to centroid vertices only
+            fwd = mne.forward.restrict_forward_to_label(fwd_surf, centroid_labels)
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
