@@ -9,12 +9,16 @@ meg_params = {'data_type': 'ICA'}
 exp_info = setup.exp_info()
 
 for subject_id in exp_info.subjects_ids:
+# for subject_id in ['17643']:
     print(f'Processing subject {subject_id}')
 
     subject = setup.subject(subject_id=subject_id)
 
     # Load MEG
     meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
+
+    # ---------------- Add experiment end annotation ---------------- #
+    meg_data = functions_preproc.exp_end_crop(meg_data=meg_data)
 
     stim_data = meg_data.copy().pick('stim')
 
@@ -32,9 +36,6 @@ for subject_id in exp_info.subjects_ids:
 
     # ---------------- Remove saccades and fixations annotations ---------------- #
     meg_data = functions_preproc.remove_annotations(meg_data=meg_data)
-
-    # ---------------- Add experiment end annotation ---------------- #
-    meg_data = functions_preproc.exp_end_annotate(meg_data=meg_data)
 
     # ---------------- Fixations and saccades detection ----------------#
     fixations, saccades, pursuits = functions_preproc.fixations_saccades_detection(meg_data=meg_data,
