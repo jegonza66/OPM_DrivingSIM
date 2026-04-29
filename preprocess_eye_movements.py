@@ -25,6 +25,8 @@ meg_params = {'chs_id': 'mag',
               }
 
 
+sac_amp_threshold = 4.5  # Amplitude threshold (deg) for short/long classification
+
 for subject_id in exp_info.subjects_ids:
 
     # Load subject
@@ -33,10 +35,19 @@ for subject_id in exp_info.subjects_ids:
     # Load MEG data
     meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
 
-    # Load fixations
+    # Load fixations and saccades
     fixations = subject.fixations()
+    saccades = subject.saccades()
 
     exp_info = setup.exp_info()
+
+    # Classify saccades as short or long based on amplitude
+    saccades['sac_class'] = saccades['amp'].apply(lambda a: 'short' if a < sac_amp_threshold else 'long')
+
+    # Extend saccade classification to fixations via preceding saccade
+    # prev_sac references the original pre-filtering index, stored in 'Unnamed: 0'
+    sac_class_map = saccades.set_index('Unnamed: 0')['sac_class']
+    fixations['prev_sac_class'] = fixations['prev_sac'].map(sac_class_map)
 
     # Fixations on left mirror
     fixations['left_mirror'] = ((fixations['mean_x'] > exp_info.left_mirror_px['x'][0]) &
@@ -54,7 +65,7 @@ for subject_id in exp_info.subjects_ids:
     fixations['on_mirror'] = fixations['left_mirror'] | fixations['right_mirror']
 
     # Fixations on stimulus
-    stimulus_onsets = subject.master_df['symbol_onset_time'] #- meg_data.first_time
+    stimulus_onsets = exp_info.master_df[subject_id] #- meg_data.first_time
     stimulus_offsets = stimulus_onsets + exp_info.DA_duration #- meg_data.first_time
 
     fixations['onset_meg'] = fixations['onset'] + meg_data.first_time
@@ -69,6 +80,7 @@ for subject_id in exp_info.subjects_ids:
         fixations.loc[mask, 'stimulus_number'] = stim_number
 
     processed_save_path = paths.processed_path + subject_id + '/'
-    # Save fixations ans saccades
+    # Save fixations and saccades
     fixations.to_csv(processed_save_path + 'fixations.csv')
+    saccades.to_csv(processed_save_path + 'saccades.csv')
 
