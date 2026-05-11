@@ -52,20 +52,20 @@ meg_params = {'chs_id': 'mag_z',
               }
 
 # Source estimation parameters
-parc = 'aparc'
+parc = 'aparc.a2009s'
 spacing = 'ico4'  # Spacing used when creating the parcellation source model
 pick_ori = None  # Must match sourcemodel_setup.py setting
 
 # TRF parameters
 trf_params = {
     'input_features': {
-        # 'fix': None,
-        # 'sac': None,
-        # 'pur': None,
+        'fix': None,
+        'sac': None,
+        'pur': None,
         'audio_env_std': None,
-        # 'Steering_std_der': None,
-        # 'left_but': None,
-        # 'right_but': None,
+        'Steering_std_der': None,
+        'left_but': None,
+        'right_but': None,
     },
     'standarize': True,
     'fit_power': False,
@@ -74,6 +74,8 @@ trf_params = {
     'tmax': 0.5,
 }
 trf_params['baseline'] = (trf_params['tmin'], trf_params['tmax'])
+
+initial_time = 0.0
 
 # --------- Setup ---------#
 subjects_dir = os.path.join(paths.mri_path, 'freesurfer')
@@ -253,7 +255,7 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
                 subj_evoked, parc, subject_code, subjects_dir, spacing)
             brain = plot_general.sources(
                 stc=stc_trf, src=src_full, subject=subject_code,
-                subjects_dir=subjects_dir, initial_time=None,
+                subjects_dir=subjects_dir, initial_time=initial_time,
                 surf_vol='surface', force_fsaverage=False,
                 source_estimation='trf', views=['lateral', 'medial'],
                 save_fig=save_fig, fig_path=fig_path + f'{subject_id}/',
@@ -280,7 +282,7 @@ for feature in features:
         grand_avg[feature], parc, 'fsaverage', subjects_dir, spacing)
     brain = plot_general.sources(
         stc=stc_ga, src=src_ga, subject='fsaverage',
-        subjects_dir=subjects_dir, initial_time=None,
+        subjects_dir=subjects_dir, initial_time=initial_time,
         surf_vol='surface', force_fsaverage=True,
         source_estimation='trf', views=['lateral', 'medial'],
         save_fig=save_fig, fig_path=fig_path,

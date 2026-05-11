@@ -18,11 +18,11 @@ task = 'DA2'
 chs_id = 'mag_z'
 surf_vol = 'parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation'
 force_fsaverage = False
-spacing = 'ico5'
+spacing = 'ico4'
 pos = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
-parc = 'aparc'  # Parcellation atlas (used when surf_vol='parcellation')
+parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
 
 meg_params = {'data_type': 'processed'}
 
