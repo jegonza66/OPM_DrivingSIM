@@ -14,6 +14,7 @@ et_path = main_path + 'DATA/ET/'
 mri_path = main_path + 'DATA/MRI/'
 opt_path = main_path + 'DATA/OPT/'
 exp_path = main_path + 'DATA/Experiment/'
+exp_video_path = main_path + 'DATA/EXP/'
 bh_path = main_path + 'DATA/BEHAV/'
 
 

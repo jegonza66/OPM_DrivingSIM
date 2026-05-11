@@ -721,44 +721,43 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_a
             input_array = (input_array - np.mean(input_array)) / np.std(input_array)
 
     elif 'audio_env' in var_name:
-        # Audio envelope via Hilbert transform, low-pass filtered at 20 Hz
-        meg_params = {'data_type': 'processed'}
-        raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params)
-        audio_signal = raw.get_data(picks='Audio')[0, :]
-        sfreq = raw.info['sfreq']
-        analytic_signal = scipy.signal.hilbert(audio_signal)
-        input_array = np.abs(analytic_signal)
+        # Audio envelope from synchronized video audio (preprocess_audio.py)
+        meg_params_full = {'data_type': 'processed'}
+        raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
 
-        # Low-pass filter envelope at 20 Hz
-        b, a = scipy.signal.butter(4, 20, btype='low', fs=sfreq)
-        input_array = scipy.signal.filtfilt(b, a, input_array)
+        if 'AudioEnvVideo' in raw.ch_names:
+            input_array = raw.get_data(picks='AudioEnvVideo')[0, :]
+        else:
+            # Fallback: compute on-the-fly from video
+            import preprocess_audio
+            raw, _ = preprocess_audio.extract_and_sync_audio(
+                subject.subject_id, raw, save_fig=False, plot=False)
+            input_array = raw.get_data(picks='AudioEnvVideo')[0, :]
 
-        # Detect sustained audio intervals via rolling RMS
-        win = int(5 * sfreq)
-        rolling_power = np.convolve(input_array**2, np.ones(win)/win, mode='same')
-        rolling_rms = np.sqrt(rolling_power)
-        threshold = np.median(rolling_rms) * 1.5
-        audio_active = rolling_rms > threshold
+        # Mask engine noise: only when _msk suffix is used
+        if '_msk' in var_name:
+            sfreq = raw.info['sfreq']
+            win = int(5 * sfreq)
+            rolling_power = np.convolve(input_array**2, np.ones(win)/win, mode='same')
+            rolling_rms = np.sqrt(rolling_power)
+            threshold = np.median(rolling_rms) * 1.5
+            audio_active = rolling_rms > threshold
 
-        # Find contiguous intervals, keep only those longer than 10s
-        diff = np.diff(audio_active.astype(int))
-        starts = np.where(diff == 1)[0] / sfreq
-        stops = np.where(diff == -1)[0] / sfreq
-        if audio_active[0]:
-            starts = np.concatenate([[0], starts])
-        if audio_active[-1]:
-            stops = np.concatenate([stops, [len(audio_signal) / sfreq]])
-        intervals = [(s, e) for s, e in zip(starts, stops) if (e - s) > 10]
+            diff = np.diff(audio_active.astype(int))
+            starts = np.where(diff == 1)[0] / sfreq
+            stops = np.where(diff == -1)[0] / sfreq
+            if audio_active[0]:
+                starts = np.concatenate([[0], starts])
+            if audio_active[-1]:
+                stops = np.concatenate([stops, [len(input_array) / sfreq]])
+            intervals = [(s, e) for s, e in zip(starts, stops) if (e - s) > 10]
 
-        # Zero out envelope outside detected audio intervals
-        times_arr = np.arange(len(input_array)) / sfreq
-        mask = np.zeros(len(input_array), dtype=bool)
-        for s, e in intervals:
-            mask |= (times_arr >= s) & (times_arr <= e)
-        input_array[~mask] = 0
-
-        # Threshold: silence below 0.02
-        input_array[input_array < 0.02] = 0
+            times_arr = np.arange(len(input_array)) / sfreq
+            mask = np.zeros(len(input_array), dtype=bool)
+            for s, e in intervals:
+                mask |= (times_arr >= s) & (times_arr <= e)
+            input_array[~mask] = 0
+            input_array[input_array < 0.02] = 0
 
         if '_der' in var_name:
             input_array = np.gradient(input_array)

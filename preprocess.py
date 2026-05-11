@@ -1,6 +1,7 @@
 import setup
 import load
 import functions_preproc
+import preprocess_audio
 
 
 meg_params = {'data_type': 'ICA'}
@@ -58,6 +59,9 @@ for subject_id in exp_info.subjects_ids:
 
     # ---------------- Add scaled ET channels back to MEG data ----------------#
     meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
+
+    # ---------------- Extract and sync audio envelope from video ----------------#
+    meg_data, sync_info = preprocess_audio.extract_and_sync_audio(subject_id=subject_id, meg_data=meg_data)
 
     # ---------------- Save preprocessed data ----------------#
     functions_preproc.save_data(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA2')
