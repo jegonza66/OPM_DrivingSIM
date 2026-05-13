@@ -55,7 +55,7 @@ for subject_id in exp_info.subjects_ids:
     pursuits = functions_preproc.fixations_classification(df=pursuits, saccades=saccades, meg_data=meg_data, et_channels_meg=et_channels_meg, title='pursuits')
 
     # ---------------- Interpolate bad channels ----------------#
-    # meg_data = functions_preproc.interpolate_bad_channels(subject_id, meg_data, exp_info)
+    meg_data = functions_preproc.interpolate_bad_channels(subject_id, meg_data, exp_info)
 
     # ---------------- Add scaled ET channels back to MEG data ----------------#
     meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
