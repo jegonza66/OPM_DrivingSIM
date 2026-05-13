@@ -1,12 +1,13 @@
 import os
 import mne
 import numpy as np
+import nibabel as nib
 import functions_general
 import paths
 import load
 import setup
-import pandas as pd
 import plot_general
+from mne.transforms import apply_trans, read_ras_mni_t
 
 # Load experiment info
 exp_info = setup.exp_info()
@@ -16,13 +17,19 @@ exp_info = setup.exp_info()
 task = 'DA2'
 # Define surface, volume, mixed, or parcellation source space
 chs_id = 'mag_z'
-surf_vol = 'parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation'
+surf_vol = 'vol_parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation' | 'vol_parcellation'
 force_fsaverage = False
 spacing = 'ico4'
 pos = 10
 pick_ori = None # 'normal' | 'max-power' | None
 depth = None
 parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
+
+# Volumetric atlas in MNI152 space (used when surf_vol='vol_parcellation')
+# Option A: Use a local .nii.gz file
+# vol_parc_path = os.path.join(paths.mri_path, 'atlases', 'atlas-Giles_nparc-38_space-MNI_res-8x8x8.nii.gz')
+# Option B: Use a standard atlas fetched via nilearn (e.g. 'aal', 'destrieux', 'harvard_oxford')
+vol_parc_atlas = 'aal'  # 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer' | or path to a .nii.gz file
 
 meg_params = {'data_type': 'processed'}
 
@@ -281,3 +288,161 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
             # Restrict forward to centroid vertices only
             fwd = mne.forward.restrict_forward_to_label(fwd_surf, centroid_labels)
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
+
+    elif surf_vol == 'vol_parcellation':
+        # ---------------------------------------------------------------
+        # Volume parcellation using a NIfTI atlas defined in MNI152 space
+        # ---------------------------------------------------------------
+        # Each subject's volume source positions (in FreeSurfer surface-RAS)
+        # are transformed to MNI152 so we can look up atlas parcel IDs:
+        #
+        #   surface-RAS  →  MNI305          per-subject, via FreeSurfer's
+        #       (tkRAS)     (Talairach)      talairach.xfm read by MNE's
+        #                                    read_ras_mni_t()
+        #
+        #   MNI305       →  MNI152           fixed published transform from
+        #                                    FreeSurfer documentation (see
+        #                                    surfer.nmr.mgh.harvard.edu/
+        #                                    fswiki/CoordinateSystems)
+        #
+        # One centroid source per parcel is retained, giving a low-
+        # dimensional source space suitable for TRF / connectivity.
+
+        # --- Load / fetch the atlas ---------------------------------
+        if os.path.isfile(vol_parc_atlas):
+            vol_parc_path = vol_parc_atlas
+            vol_parc_name = os.path.basename(vol_parc_path).replace('.nii.gz', '').replace('.nii', '')
+            atlas_img = nib.load(vol_parc_path)
+            atlas_labels = None
+        else:
+            from nilearn import datasets as ni_datasets
+            if vol_parc_atlas == 'aal':
+                atlas = ni_datasets.fetch_atlas_aal()
+                vol_parc_path = atlas['maps']
+                atlas_labels = atlas['labels']
+            elif vol_parc_atlas == 'destrieux':
+                atlas = ni_datasets.fetch_atlas_destrieux_2009()
+                vol_parc_path = atlas['maps']
+                atlas_labels = atlas['labels']
+            elif vol_parc_atlas == 'harvard_oxford':
+                atlas = ni_datasets.fetch_atlas_harvard_oxford('cort-maxprob-thr25-2mm')
+                vol_parc_path = atlas['maps']
+                atlas_labels = atlas['labels']
+            elif vol_parc_atlas == 'schaefer':
+                atlas = ni_datasets.fetch_atlas_schaefer_2018(n_rois=100, resolution_mm=2)
+                vol_parc_path = atlas['maps']
+                atlas_labels = atlas['labels']
+            else:
+                raise ValueError(
+                    f'Unknown vol_parc_atlas "{vol_parc_atlas}". '
+                    f'Use "aal", "destrieux", "harvard_oxford", "schaefer", '
+                    f'or provide a path to a .nii.gz file.'
+                )
+            vol_parc_name = vol_parc_atlas
+            atlas_img = nib.load(vol_parc_path)
+
+        atlas_data = np.asarray(atlas_img.dataobj).astype(int)  # parcel IDs are integers
+        atlas_affine = atlas_img.affine            # voxel -> MNI152 mm
+        inv_atlas_affine = np.linalg.inv(atlas_affine)  # MNI152 mm -> voxel
+
+        if atlas_labels is not None:
+            print(f'Atlas "{vol_parc_name}" loaded: {len(atlas_labels)} labels, '
+                  f'volume shape {atlas_data.shape}')
+
+        # --- Full volume source space (needed to define candidate vertices) ---
+        fname_src_vol = (paths.sources_path + subject_code
+                         + f'/{subject_code}_volume_{spacing}_{int(pos)}-src.fif')
+        try:
+            src_vol = mne.read_source_spaces(fname_src_vol)
+        except:
+            src_vol = mne.setup_volume_source_space(
+                subject=subject_code, subjects_dir=subjects_dir,
+                bem=bem, pos=pos, sphere_units='m', add_interpolator=True
+            )
+            mne.write_source_spaces(fname_src_vol, src_vol, overwrite=True)
+
+        # --- Map source positions to MNI152 and assign parcels ----------
+        inuse_mask = src_vol[0]['inuse'].astype(bool)
+        src_rr = src_vol[0]['rr'][inuse_mask]  # (n_src, 3) metres, surface-RAS
+
+        # Step 1: surface-RAS → MNI305 (per-subject, from FreeSurfer's
+        #         talairach.xfm via MNE's read_ras_mni_t)
+        # NOTE: read_ras_mni_t returns a mm-based transform (same as the
+        #       xfm file). MNE's own vertex_to_mni converts to mm before
+        #       applying it. Source positions must be in mm here.
+        ras_mni_t = read_ras_mni_t(subject_code, subjects_dir)
+        src_rr_mm = src_rr * 1000                          # m → mm
+        src_mni305_mm = apply_trans(ras_mni_t, src_rr_mm)  # MNI305, mm
+
+        # Step 2: MNI305 → MNI152 (fixed coordinate-system relationship)
+        # Published by FreeSurfer:
+        # https://surfer.nmr.mgh.harvard.edu/fswiki/CoordinateSystems
+        # This is a known constant — it does NOT vary per subject.
+        mni305_to_mni152 = np.array([
+            [ 0.9975, -0.0073,  0.0176, -0.0429],
+            [ 0.0146,  1.0009, -0.0024,  1.5496],
+            [-0.0130, -0.0093,  0.9971,  1.1840],
+            [ 0.0000,  0.0000,  0.0000,  1.0000],
+        ])  # operates on mm
+        src_mni152_mm = apply_trans(mni305_to_mni152, src_mni305_mm)
+
+        # Step 3: MNI152 mm → atlas voxel indices
+        src_vox = apply_trans(inv_atlas_affine, src_mni152_mm)
+        src_vox_idx = np.round(src_vox).astype(int)
+        for dim in range(3):
+            src_vox_idx[:, dim] = np.clip(src_vox_idx[:, dim], 0, atlas_data.shape[dim] - 1)
+
+        parcel_ids = atlas_data[src_vox_idx[:, 0], src_vox_idx[:, 1], src_vox_idx[:, 2]]
+
+        # Keep only non-background parcels
+        unique_parcels = np.unique(parcel_ids)
+        unique_parcels = unique_parcels[unique_parcels != 0]
+
+        if len(unique_parcels) == 0:
+            raise RuntimeError(
+                f'No source points fell inside any atlas parcel for {subject_code}. '
+                f'Check the coordinate transform (print output above). '
+                f'Expected MNI152 coords roughly in range x=[-80,80], y=[-120,80], z=[-60,90] mm.'
+            )
+
+        # Find the source closest to each parcel's centroid
+        centroid_global_indices = []
+        for p_id in unique_parcels:
+            mask = parcel_ids == p_id
+            parcel_coords = src_rr[mask]
+            centroid = parcel_coords.mean(axis=0)
+            dists = np.linalg.norm(parcel_coords - centroid, axis=1)
+            centroid_global_indices.append(int(np.where(mask)[0][np.argmin(dists)]))
+
+        # Map back from "inuse" indices to full rr-array indices
+        inuse_indices = np.where(inuse_mask)[0]
+        centroid_rr_indices = inuse_indices[np.array(centroid_global_indices, dtype=int)]
+
+        # --- Restricted volume source space (one source per parcel) -----
+        fname_src = (paths.sources_path + subject_code
+                     + f'/{subject_code}_vol_parcellation_{vol_parc_name}-src.fif')
+        try:
+            src = mne.read_source_spaces(fname_src)
+        except:
+            src = src_vol.copy()
+            src[0]['inuse'][:] = 0
+            src[0]['inuse'][centroid_rr_indices] = 1
+            src[0]['nuse'] = len(centroid_rr_indices)
+            src[0]['vertno'] = np.sort(centroid_rr_indices)
+
+            n_sources = len(centroid_rr_indices)
+            print(f'Volume parcellation source space: {n_sources} sources '
+                  f'from {len(unique_parcels)} parcels ({vol_parc_name})')
+            mne.write_source_spaces(fname_src, src, overwrite=True)
+
+        # --- Forward model ----------------------------------------------
+        if subject_id != 'fsaverage':
+            fname_fwd = (sources_path_subject
+                         + f'/{subject_code}_{meg_params["data_type"]}_chs{chs_id}'
+                           f'_vol_parcellation_{vol_parc_name}-fwd.fif')
+
+            fwd = mne.make_forward_solution(
+                meg_data.info, trans=trans_path, src=src, bem=bem
+            )
+            mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
+
