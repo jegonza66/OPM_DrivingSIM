@@ -176,10 +176,10 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['DAfull']
 
             elif 'left_but' == epoch_id:
-                # Left button from button/left channel (rising edge detection)
+                # Left button from button/left/green channel (rising edge detection)
                 meg_params_full = {'data_type': 'processed'}
                 raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
-                button_data = raw_full.get_data(picks='button/left')[0, :]
+                button_data = raw_full.get_data(picks='button/left/green')[0, :]
                 crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
                 onset_times = crossings / raw_full.info['sfreq']
 
@@ -197,10 +197,10 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['left_but']
 
             elif 'right_but' == epoch_id:
-                # Right button from button/right channel (rising edge detection)
+                # Right button from button/right/yellow channel (rising edge detection)
                 meg_params_full = {'data_type': 'processed'}
                 raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
-                button_data = raw_full.get_data(picks='button/right')[0, :]
+                button_data = raw_full.get_data(picks='button/right/yellow')[0, :]
                 crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
                 onset_times = crossings / raw_full.info['sfreq']
 
