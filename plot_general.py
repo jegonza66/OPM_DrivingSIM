@@ -1187,7 +1187,15 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
 
         # Nutmeg plot
         if subject == 'fsaverage':
-            bg_img = paths.mri_path + 'MNI_templates/tpl-MNI152NLin2009cAsym_res-01_T1w.nii.gz'
+            # Use fsaverage's own T1 from FreeSurfer as background
+            _fsavg_t1 = os.path.join(subjects_dir, 'fsaverage', 'mri', 'T1.mgz')
+            _mni_t1 = paths.mri_path + 'MNI_templates/tpl-MNI152NLin2009cAsym_res-01_T1w.nii.gz'
+            if os.path.isfile(_mni_t1):
+                bg_img = _mni_t1
+            elif os.path.isfile(_fsavg_t1):
+                bg_img = _fsavg_t1
+            else:
+                bg_img = None
         else:
             bg_img = None
 
