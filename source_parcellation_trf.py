@@ -57,7 +57,7 @@ meg_params = {'chs_id': 'mag_z',
               }
 
 # Source estimation parameters
-surf_vol = 'vol_parcellation'  # 'parcellation' | 'vol_parcellation'
+surf_vol = 'parcellation'  # 'parcellation' | 'vol_parcellation'
 parc = 'aparc.a2009s'          # Surface parcellation (used when surf_vol='parcellation')
 # Volume atlas (used when surf_vol='vol_parcellation') — must match sourcemodel_setup.py
 vol_parc_atlas = 'aal'         # 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer' | or path to .nii.gz
@@ -68,13 +68,13 @@ pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing
 # TRF parameters
 trf_params = {
     'input_features': {
-        'fix': None,
-        'sac': None,
-        'pur': None,
+        # 'fix': None,
+        # 'sac': None,
+        # 'pur': None,
         'audio_env_std': None,
-        'Steering_std_der': None,
-        'left_but': None,
-        'right_but': None,
+        # 'Steering_std_der': None,
+        # 'left_but': None,
+        # 'right_but': None,
     },
     'standarize': True,
     'fit_power': False,
@@ -269,11 +269,14 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         vert_parcel_ids = atlas_data[vert_vox_idx[:, 0], vert_vox_idx[:, 1], vert_vox_idx[:, 2]]
 
         label_names = []
-        for p_id in vert_parcel_ids:
+        for i, p_id in enumerate(vert_parcel_ids):
             if vol_label_names_map is not None and p_id in vol_label_names_map:
                 label_names.append(vol_label_names_map[p_id])
             else:
-                label_names.append(f'parcel_{p_id}')
+                # Give each background centroid a unique name to avoid
+                # MNE's duplicate-renaming (which adds '-0', '-1' suffixes
+                # that break name-based matching later)
+                label_names.append(f'parcel_{p_id}_src{i}')
 
     print(f'Extracted {n_sources} source timecourses ({len(label_names)} labels)')
 
@@ -444,10 +447,6 @@ for feature in features:
                            + f'/fsaverage_volume_{spacing}_{int(pos)}-src.fif')
         src_fsavg = mne.read_source_spaces(fname_src_fsavg)
 
-        fname_src_parc_fsavg = (paths.sources_path + 'fsaverage'
-                                + f'/fsaverage_vol_parcellation_{vol_parc_name}-src.fif')
-        src_parc_fsavg = mne.read_source_spaces(fname_src_parc_fsavg)
-
         # Map fsaverage volume vertices to atlas parcels
         fsavg_inuse = src_fsavg[0]['inuse'].astype(bool)
         fsavg_rr_mm = src_fsavg[0]['rr'][fsavg_inuse] * 1000
@@ -460,21 +459,46 @@ for feature in features:
             fsavg_vox_idx[:, dim] = np.clip(fsavg_vox_idx[:, dim], 0, atlas_data.shape[dim] - 1)
         fsavg_parcel_ids = atlas_data[fsavg_vox_idx[:, 0], fsavg_vox_idx[:, 1], fsavg_vox_idx[:, 2]]
 
-        # Build mapping: parcel ID → TRF centroid index
-        parc_vertno_ga = src_parc_fsavg[0]['vertno']
-        parcel_to_trf_ga = {}
-        for i, v in enumerate(parc_vertno_ga):
-            v_idx = np.searchsorted(src_fsavg[0]['vertno'], v)
-            if v_idx < len(fsavg_parcel_ids):
-                p_id = fsavg_parcel_ids[v_idx]
-                parcel_to_trf_ga[p_id] = i
+        # Build mapping: parcel ID → label name (for matching to GA channels)
+        # vol_label_names_map was built during the per-subject label mapping
+        # and maps integer parcel IDs to human-readable names.
+        # NOTE: MNE appends '-0', '-1', etc. suffixes to channel names when
+        # duplicates exist (e.g. multiple centroids mapping to 'parcel_0').
+        # We strip these suffixes before matching to atlas label names.
+        import re
+        ga_ch_names = grand_avg[feature].info['ch_names']
+        # Build index from base name (suffix stripped) → first matching channel index
+        ga_base_to_idx = {}
+        for idx, ch_name in enumerate(ga_ch_names):
+            base_name = re.sub(r'-\d+$', '', ch_name)
+            if base_name not in ga_base_to_idx:
+                ga_base_to_idx[base_name] = idx
+
+        # Map: parcel ID → GA channel index (via label name)
+        parcel_to_ga_idx = {}
+        if vol_label_names_map is not None:
+            for p_id, p_name in vol_label_names_map.items():
+                if p_name in ga_base_to_idx:
+                    parcel_to_ga_idx[p_id] = ga_base_to_idx[p_name]
+        else:
+            # Custom atlas with no label names: channel names are "parcel_<id>"
+            for p_id in np.unique(fsavg_parcel_ids):
+                p_name = f'parcel_{p_id}'
+                if p_name in ga_base_to_idx:
+                    parcel_to_ga_idx[p_id] = ga_base_to_idx[p_name]
+
+        # --- Diagnostics ---
+        print(f'  GA diagnostics: {len(parcel_to_ga_idx)} parcel-to-channel matches '
+              f'(from {len(np.unique(fsavg_parcel_ids[fsavg_parcel_ids != 0]))} parcels, '
+              f'{len(ga_ch_names)} GA channels)')
+        # --- End diagnostics ---
 
         # Fill all vertices with their parcel's GA TRF value
         full_vertno_ga = src_fsavg[0]['vertno']
         full_data_ga = np.zeros((len(full_vertno_ga), grand_avg[feature].data.shape[1]))
         for v_idx, p_id in enumerate(fsavg_parcel_ids):
-            if p_id in parcel_to_trf_ga:
-                full_data_ga[v_idx] = grand_avg[feature].data[parcel_to_trf_ga[p_id]]
+            if p_id in parcel_to_ga_idx:
+                full_data_ga[v_idx] = grand_avg[feature].data[parcel_to_ga_idx[p_id]]
 
         stc_ga_vol = mne.VolSourceEstimate(
             data=full_data_ga,
