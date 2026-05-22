@@ -39,7 +39,7 @@ from mne.transforms import apply_trans, read_ras_mni_t
 exp_info = setup.exp_info()
 
 # --------- Save / Display ---------#
-use_saved_data = False
+use_saved_data = True
 save_data = True
 save_fig = True
 display_figs = True
@@ -51,7 +51,7 @@ else:
 
 # --------- Parameters ---------#
 meg_params = {'chs_id': 'mag_z',
-              'band_id': None,
+              'band_id': 'Beta',
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -68,23 +68,39 @@ pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing
 # TRF parameters
 trf_params = {
     'input_features': {
-        # 'fix': None,
-        # 'sac': None,
-        # 'pur': None,
+        'fix': None,
+        'sac': None,
+        'pur': None,
         'audio_env_std': None,
-        # 'Steering_std_der': None,
-        # 'left_but': None,
-        # 'right_but': None,
+        'Steering_std_der': None,
+        'gas_std_der': None,
+        'brake_std_der': None,
+        'left_but': None,
+        'right_but': None,
     },
     'standarize': True,
-    'fit_power': False,
-    'alpha': None,
-    'tmin': -0.2,
-    'tmax': 0.5,
+    'fit_power': True,
+    'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
+    # Per-feature duration: use dict with 'default' key and optional per-feature overrides
+    # e.g. 'tmin': {'default': -0.2, 'left_but': -2}, 'tmax': {'default': 0.5, 'left_but': 2}
+    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2, 'gas_std_der': -2, 'brake_std_der': -2},
+    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'left_but': 2, 'right_but': 2, 'gas_std_der': 2, 'brake_std_der': 2},
+    'plot_margin': 0.15,  # seconds to crop from each side of plotted TRF time series
 }
-trf_params['baseline'] = (trf_params['tmin'], trf_params['tmax'])
 
-initial_time = None
+# Per-feature initial time for brain plots: dict with 'default' key and optional per-feature overrides
+# e.g. {'default': None, 'fix': 0.1, 'left_but': 0.3}
+initial_time = {'default': None,
+                'fix': None,
+                'sac': [0.0, 0.12],
+                'pur': None,
+                'audio_env_std': None,
+                'Steering_std_der': None,
+                'gas_std_der': None,
+                'brake_std_der': None,
+                'left_but': None,
+                'right_but': None,
+                }
 
 # --------- Setup ---------#
 subjects_dir = os.path.join(paths.mri_path, 'freesurfer')
@@ -115,9 +131,13 @@ if surf_vol == 'vol_parcellation':
 else:
     parc_tag = f'parcellation_{parc}'
 
+_path_tmin = trf_params['tmin'].get('default') if isinstance(trf_params['tmin'], dict) else trf_params['tmin']
+_path_tmax = trf_params['tmax'].get('default') if isinstance(trf_params['tmax'], dict) else trf_params['tmax']
+_path_bline = (_path_tmin, _path_tmax)
+_alpha_tag = f'_alpha{trf_params["alpha"]}' if trf_params['alpha'] is None else '_alphaCV'
 fig_path = paths.plots_path + (f"TRF_Source_{meg_params['data_type']}/Band_{meg_params['band_id']}/{parc_tag}/"
-                               f"{trf_params['input_features']}_{trf_params['tmin']}_{trf_params['tmax']}_"
-                               f"bline{trf_params['baseline']}_alpha{trf_params['alpha']}_"
+                               f"{functions_general.features_path_str(trf_params['input_features'])}_{_path_tmin}_{_path_tmax}_"
+                               f"bline{_path_bline}{_alpha_tag}_"
                                f"std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")
 save_path_trf = fig_path.replace(paths.plots_path, paths.save_path)
 
@@ -311,134 +331,222 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
                 bad_annotations_array=bad_annotations_array,
                 subj_path=subj_path, fname=fname_var)
 
-    model_input = np.array([input_arrays[key] for key in input_arrays.keys()]).T
-
-    # --------- Fit TRF on source data ---------#
+        # --------- Fit TRF on source data (per-duration groups) ---------#
     trf_fname = f'TRF_{subject_id}.pkl'
+    duration_groups = functions_analysis.group_features_by_duration(features, trf_params)
+    plot_margin = trf_params.get('plot_margin', 0)
 
     if os.path.isfile(save_path_trf + trf_fname) and use_saved_data:
-        rf = load.var(save_path_trf + trf_fname)
+        rf_results = load.var(save_path_trf + trf_fname)
+        # Handle legacy saved format (single RF object)
+        if not isinstance(rf_results, list):
+            default_tmin, default_tmax = functions_analysis.get_feature_tmin_tmax(features[0], trf_params)
+            rf_results = [{'rf': rf_results, 'features': features, 'tmin': default_tmin, 'tmax': default_tmax}]
         print('Loaded Source TRF')
     else:
-        rf = functions_analysis.fit_mtrf(
-            meg_data=raw_src, tmin=trf_params['tmin'], tmax=trf_params['tmax'],
-            alpha=trf_params['alpha'] if trf_params['alpha'] else 0,
-            model_input=model_input, chs_id='misc',
-            standarize=trf_params['standarize'], fit_power=trf_params['fit_power'])
+        alpha = trf_params['alpha'] if trf_params['alpha'] else 0
+        rf_results = []
+        for (group_tmin, group_tmax), group_features in duration_groups.items():
+            group_input = np.array([input_arrays[f] for f in group_features]).T
+            print(f'Fitting mTRF (tmin={group_tmin}, tmax={group_tmax}) for features: {group_features}')
+            group_rf = functions_analysis.fit_mtrf(
+                meg_data=raw_src, tmin=group_tmin, tmax=group_tmax,
+                alpha=alpha,
+                model_input=group_input, chs_id='misc',
+                standarize=trf_params['standarize'], fit_power=trf_params['fit_power'])
+            best_alpha = functions_analysis.extract_best_alpha(group_rf)
+            if best_alpha is not None:
+                print(f'  Best alpha: {best_alpha}')
+            rf_results.append({
+                'rf': group_rf,
+                'features': group_features,
+                'tmin': group_tmin,
+                'tmax': group_tmax,
+                'best_alpha': best_alpha,
+            })
+
+        # Save alpha report
+        functions_analysis.save_alpha_report(rf_results, subject_id, fig_path + f'{subject_id}/')
 
         if save_data:
-            save.var(var=rf, path=save_path_trf, fname=trf_fname)
+            save.var(var=rf_results, path=save_path_trf, fname=trf_fname)
+
+    # --------- Compute label positions for spatial coloring ---------#
+    label_positions = {}
+    if surf_vol == 'parcellation':
+        lh_verts_pos = src[0]['rr'][src[0]['vertno']]
+        rh_verts_pos = src[1]['rr'][src[1]['vertno']]
+        all_pos = np.vstack([lh_verts_pos, rh_verts_pos])
+        for idx_lp, name_lp in enumerate(label_names):
+            label_positions[name_lp] = all_pos[idx_lp]
+    elif surf_vol == 'vol_parcellation':
+        vol_verts_pos = src[0]['rr'][src[0]['vertno']]
+        for idx_lp, name_lp in enumerate(label_names):
+            label_positions[name_lp] = vol_verts_pos[idx_lp]
 
     # --------- Extract TRF coefficients as Evoked objects ---------#
-    # rf.coef_ shape: (n_sources, n_features, n_delays)
-    for feature_index, feature in enumerate(features):
-        trf_coefs = rf.coef_[:, feature_index, :]  # (n_sources, n_delays)
-        subj_evoked = mne.EvokedArray(data=trf_coefs, info=raw_src.info,
-                                      tmin=trf_params['tmin'],
-                                      baseline=trf_params['baseline'])
+    for group in rf_results:
+        for feat_idx, feature in enumerate(group['features']):
+            feat_tmin = group['tmin']
+            feat_tmax = group['tmax']
+            trf_coefs = group['rf'].coef_[:, feat_idx, :]  # (n_sources, n_delays)
+            subj_evoked = mne.EvokedArray(data=trf_coefs, info=raw_src.info,
+                                           tmin=feat_tmin,
+                                           baseline=(feat_tmin, feat_tmax))
 
-        feature_evokeds[feature].append(subj_evoked)
+            feature_evokeds[feature].append(subj_evoked)
 
-        if plot_individuals:
-            fig = subj_evoked.plot(spatial_colors=False, gfp=True, show=display_figs,
-                                  xlim=(trf_params['tmin'], trf_params['tmax']),
-                                  titles=f'{feature} - {subject_id}')
-            if save_fig:
-                fig_path_subj = fig_path + f'{subject_id}/'
-                fname_fig = f'{feature}_source_trf'
-                save.fig(fig=fig, fname=fname_fig, path=fig_path_subj)
+            feat_initial_times = functions_analysis.get_feature_initial_time(feature, initial_time)
 
-            # Brain plot (surface parcellations only)
-            if surf_vol == 'parcellation':
-                stc_trf, src_full = functions_analysis.evoked_to_parcellation_stc(
-                    subj_evoked, parc, subject_code, subjects_dir, spacing)
-                brain = plot_general.sources(
-                    stc=stc_trf, src=src_full, subject=subject_code,
-                    subjects_dir=subjects_dir, initial_time=initial_time,
-                    surf_vol='surface', force_fsaverage=False,
-                    source_estimation='trf', views=['lateral', 'medial'],
-                    save_fig=save_fig, fig_path=fig_path + f'{subject_id}/',
-                    fname=f'{feature}_source_trf_brain')
+            if plot_individuals:
+                # Spatial-colored evoked plot with head diagram
+                fig = plot_general.plot_source_evoked_spatial(
+                    evoked=subj_evoked, label_positions=label_positions, gfp=True,
+                    xlim=(feat_tmin + plot_margin, feat_tmax - plot_margin),
+                    title=f'{feature} - {subject_id}',
+                    display_figs=display_figs, save_fig=save_fig,
+                    fig_path=fig_path + f'{subject_id}/',
+                    fname=f'{feature}_source_trf')
 
-            elif surf_vol == 'vol_parcellation':
-                # Create VolSourceEstimate from TRF coefficients
-                # Fill ALL vertices in each parcel with the centroid's value
-                # for uniform region coloring (not just sparse centroid points)
-                fname_src_vol = (paths.sources_path + subject_code
-                                 + f'/{subject_code}_volume_{spacing}_{int(pos)}-src.fif')
-                src_vol_full = mne.read_source_spaces(fname_src_vol)
+                # Brain plot (surface parcellations only)
+                if surf_vol == 'parcellation':
+                    stc_trf, src_full = functions_analysis.evoked_to_parcellation_stc(
+                        subj_evoked, parc, subject_code, subjects_dir, spacing)
+                    for it in feat_initial_times:
+                        it_suffix = f'_{it}s' if it is not None else ''
+                        brain = plot_general.sources(
+                            stc=stc_trf, src=src_full, subject=subject_code,
+                            subjects_dir=subjects_dir, initial_time=it,
+                            surf_vol='surface', force_fsaverage=False,
+                            source_estimation='trf', views=['lateral', 'medial'],
+                            plot_margin=plot_margin,
+                            save_fig=save_fig, fig_path=fig_path + f'{subject_id}/',
+                            fname=f'{feature}_source_trf_brain{it_suffix}')
 
-                # Map full volume vertices to MNI152 atlas parcels
-                full_inuse = src_vol_full[0]['inuse'].astype(bool)
-                full_rr_mm = src_vol_full[0]['rr'][full_inuse] * 1000
+                elif surf_vol == 'vol_parcellation':
+                    # Create VolSourceEstimate from TRF coefficients
+                    fname_src_vol = (paths.sources_path + subject_code
+                                     + f'/{subject_code}_volume_{spacing}_{int(pos)}-src.fif')
+                    src_vol_full = mne.read_source_spaces(fname_src_vol)
 
-                ras_mni_t_plot = read_ras_mni_t(subject_code, subjects_dir)
-                full_mni305 = apply_trans(ras_mni_t_plot, full_rr_mm)
-                full_mni152 = apply_trans(mni305_to_mni152, full_mni305)
-                full_vox = apply_trans(inv_atlas_affine, full_mni152)
-                full_vox_idx = np.round(full_vox).astype(int)
-                for dim in range(3):
-                    full_vox_idx[:, dim] = np.clip(full_vox_idx[:, dim], 0, atlas_data.shape[dim] - 1)
-                full_parcel_ids = atlas_data[full_vox_idx[:, 0], full_vox_idx[:, 1], full_vox_idx[:, 2]]
+                    # Map full volume vertices to MNI152 atlas parcels
+                    full_inuse = src_vol_full[0]['inuse'].astype(bool)
+                    full_rr_mm = src_vol_full[0]['rr'][full_inuse] * 1000
 
-                # Build mapping: parcel ID → TRF centroid index
-                parc_vertno = src[0]['vertno']
-                parcel_to_trf = {}
-                for i, v in enumerate(parc_vertno):
-                    v_inuse_idx = np.searchsorted(src_vol_full[0]['vertno'], v)
-                    if v_inuse_idx < len(full_parcel_ids):
-                        p_id = full_parcel_ids[v_inuse_idx]
-                        parcel_to_trf[p_id] = i
+                    ras_mni_t_plot = read_ras_mni_t(subject_code, subjects_dir)
+                    full_mni305 = apply_trans(ras_mni_t_plot, full_rr_mm)
+                    full_mni152 = apply_trans(mni305_to_mni152, full_mni305)
+                    full_vox = apply_trans(inv_atlas_affine, full_mni152)
+                    full_vox_idx = np.round(full_vox).astype(int)
+                    for dim in range(3):
+                        full_vox_idx[:, dim] = np.clip(full_vox_idx[:, dim], 0, atlas_data.shape[dim] - 1)
+                    full_parcel_ids = atlas_data[full_vox_idx[:, 0], full_vox_idx[:, 1], full_vox_idx[:, 2]]
 
-                # Fill all vertices with their parcel's TRF value
-                full_vertno = src_vol_full[0]['vertno']
-                full_data = np.zeros((len(full_vertno), trf_coefs.shape[1]))
-                for v_idx, p_id in enumerate(full_parcel_ids):
-                    if p_id in parcel_to_trf:
-                        full_data[v_idx] = trf_coefs[parcel_to_trf[p_id]]
+                    # Build mapping: parcel ID -> TRF centroid index
+                    parc_vertno = src[0]['vertno']
+                    parcel_to_trf = {}
+                    for i, v in enumerate(parc_vertno):
+                        v_inuse_idx = np.searchsorted(src_vol_full[0]['vertno'], v)
+                        if v_inuse_idx < len(full_parcel_ids):
+                            p_id = full_parcel_ids[v_inuse_idx]
+                            parcel_to_trf[p_id] = i
 
-                stc_vol = mne.VolSourceEstimate(
-                    data=full_data,
-                    vertices=[full_vertno],
-                    tmin=trf_params['tmin'],
-                    tstep=1 / raw_src.info['sfreq']
-                )
-                brain = plot_general.sources(
-                    stc=stc_vol, src=src_vol_full, subject=subject_code,
-                    subjects_dir=subjects_dir, initial_time=initial_time,
-                    surf_vol='volume', force_fsaverage=False,
-                    source_estimation='trf', views=['lateral', 'medial'],
-                    alpha=0.5,
-                    save_fig=save_fig, fig_path=fig_path + f'{subject_id}/',
-                    fname=f'{feature}_source_trf_brain')
+                    # Fill all vertices with their parcel's TRF value
+                    full_vertno = src_vol_full[0]['vertno']
+                    full_data = np.zeros((len(full_vertno), trf_coefs.shape[1]))
+                    for v_idx, p_id in enumerate(full_parcel_ids):
+                        if p_id in parcel_to_trf:
+                            full_data[v_idx] = trf_coefs[parcel_to_trf[p_id]]
+
+                    stc_vol = mne.VolSourceEstimate(
+                        data=full_data,
+                        vertices=[full_vertno],
+                        tmin=feat_tmin,
+                        tstep=1 / raw_src.info['sfreq']
+                    )
+                    for it in feat_initial_times:
+                        it_suffix = f'_{it}s' if it is not None else ''
+                        brain = plot_general.sources(
+                            stc=stc_vol, src=src_vol_full, subject=subject_code,
+                            subjects_dir=subjects_dir, initial_time=it,
+                            surf_vol='volume', force_fsaverage=False,
+                            source_estimation='trf', views=['lateral', 'medial'],
+                            alpha=0.5, plot_margin=plot_margin,
+                            save_fig=save_fig, fig_path=fig_path + f'{subject_id}/',
+                            fname=f'{feature}_source_trf_brain{it_suffix}')
+
 
 # --------- Grand Average ---------#
 print(f"\n{'='*60}")
 print("Computing Grand Average...")
 print(f"{'='*60}")
 
+# Compute label positions for GA spatial coloring (using fsaverage for surface)
+ga_label_positions = {}
+if surf_vol == 'parcellation':
+    ga_labels = mne.read_labels_from_annot('fsaverage', parc=parc, subjects_dir=subjects_dir)
+    fname_src_ga = paths.sources_path + f'fsaverage/fsaverage_surface_{spacing}-src.fif'
+    if os.path.isfile(fname_src_ga):
+        src_ga_space = mne.read_source_spaces(fname_src_ga)
+        lh_verts_ga = src_ga_space[0]['vertno']
+        rh_verts_ga = src_ga_space[1]['vertno']
+        lh_pos_ga = src_ga_space[0]['rr'][lh_verts_ga]
+        rh_pos_ga = src_ga_space[1]['rr'][rh_verts_ga]
+        all_pos_ga = np.vstack([lh_pos_ga, rh_pos_ga])
+        # Build label names for fsaverage (same parcellation)
+        ga_label_names_tmp = []
+        for vert in lh_verts_ga:
+            matched = False
+            for label in ga_labels:
+                if label.hemi == 'lh' and vert in label.vertices:
+                    ga_label_names_tmp.append(label.name)
+                    matched = True
+                    break
+            if not matched:
+                ga_label_names_tmp.append(f'lh_vert{vert}')
+        for vert in rh_verts_ga:
+            matched = False
+            for label in ga_labels:
+                if label.hemi == 'rh' and vert in label.vertices:
+                    ga_label_names_tmp.append(label.name)
+                    matched = True
+                    break
+            if not matched:
+                ga_label_names_tmp.append(f'rh_vert{vert}')
+        for idx_lp, name_lp in enumerate(ga_label_names_tmp):
+            ga_label_positions[name_lp] = all_pos_ga[idx_lp]
+
+plot_margin = trf_params.get('plot_margin', 0)
+
 grand_avg = {}
 for feature in features:
     grand_avg[feature] = mne.grand_average(feature_evokeds[feature], interpolate_bads=True)
 
-    fig = grand_avg[feature].plot(spatial_colors=False, gfp=True, show=display_figs,
-                                 xlim=(trf_params['tmin'], trf_params['tmax']),
-                                 titles=f'GA - {feature}')
-    if save_fig:
-        fname_fig = f'{feature}_GA_source_trf'
-        save.fig(fig=fig, fname=fname_fig, path=fig_path)
+    feat_tmin, feat_tmax = functions_analysis.get_feature_tmin_tmax(feature, trf_params)
+    feat_initial_times = functions_analysis.get_feature_initial_time(feature, initial_time)
+
+    # Spatial-colored evoked plot with head diagram
+    fig = plot_general.plot_source_evoked_spatial(
+        evoked=grand_avg[feature], label_positions=ga_label_positions if ga_label_positions else label_positions,
+        gfp=True, xlim=(feat_tmin + plot_margin, feat_tmax - plot_margin),
+        title=f'GA - {feature}',
+        display_figs=display_figs, save_fig=save_fig,
+        fig_path=fig_path, fname=f'{feature}_GA_source_trf')
 
     # Grand average brain plot on fsaverage (surface parcellations only)
     if surf_vol == 'parcellation':
         stc_ga, src_ga = functions_analysis.evoked_to_parcellation_stc(
             grand_avg[feature], parc, 'fsaverage', subjects_dir, spacing)
-        brain = plot_general.sources(
-            stc=stc_ga, src=src_ga, subject='fsaverage',
-            subjects_dir=subjects_dir, initial_time=initial_time,
-            surf_vol='surface', force_fsaverage=True,
-            source_estimation='trf', views=['lateral', 'medial'],
-            save_fig=save_fig, fig_path=fig_path,
-            fname=f'{feature}_GA_source_trf_brain')
+        for it in feat_initial_times:
+            it_suffix = f'_{it}s' if it is not None else ''
+            brain = plot_general.sources(
+                stc=stc_ga, src=src_ga, subject='fsaverage',
+                subjects_dir=subjects_dir, initial_time=it,
+                surf_vol='surface', force_fsaverage=True,
+                source_estimation='trf', views=['lateral', 'medial'],
+                plot_margin=plot_margin,
+                save_fig=save_fig, fig_path=fig_path,
+                fname=f'{feature}_GA_source_trf_brain{it_suffix}')
 
     elif surf_vol == 'vol_parcellation':
         # Grand average volume brain plot on fsaverage
@@ -506,14 +614,16 @@ for feature in features:
             tmin=grand_avg[feature].times[0],
             tstep=1 / grand_avg[feature].info['sfreq']
         )
-        brain = plot_general.sources(
-            stc=stc_ga_vol, src=src_fsavg, subject='fsaverage',
-            subjects_dir=subjects_dir, initial_time=initial_time,
-            surf_vol='volume', force_fsaverage=True,
-            source_estimation='trf', views=['lateral', 'medial'],
-            alpha=0.5,
-            save_fig=save_fig, fig_path=fig_path,
-            fname=f'{feature}_GA_source_trf_brain')
+        for it in feat_initial_times:
+            it_suffix = f'_{it}s' if it is not None else ''
+            brain = plot_general.sources(
+                stc=stc_ga_vol, src=src_fsavg, subject='fsaverage',
+                subjects_dir=subjects_dir, initial_time=it,
+                surf_vol='volume', force_fsaverage=True,
+                source_estimation='trf', views=['lateral', 'medial'],
+                alpha=0.5, plot_margin=plot_margin,
+                save_fig=save_fig, fig_path=fig_path,
+                fname=f'{feature}_GA_source_trf_brain{it_suffix}')
 
 # Save grand average
 if save_data:

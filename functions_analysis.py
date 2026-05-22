@@ -17,6 +17,66 @@ from mni_to_atlas import AtlasBrowser
 
 exp_info = setup.exp_info()
 
+
+# ---------- Per-feature TRF duration helpers ---------- #
+def get_feature_tmin_tmax(feature, trf_params):
+    """Resolve per-feature tmin/tmax from trf_params.
+
+    trf_params['tmin'] and trf_params['tmax'] can be:
+    - scalar: used for all features
+    - dict: {'default': val, 'feature_name': val, ...}
+      Features not in dict use the 'default' key value.
+    """
+    tmin = trf_params['tmin']
+    tmax = trf_params['tmax']
+    if isinstance(tmin, dict):
+        feat_tmin = tmin.get(feature, tmin.get('default'))
+    else:
+        feat_tmin = tmin
+    if isinstance(tmax, dict):
+        feat_tmax = tmax.get(feature, tmax.get('default'))
+    else:
+        feat_tmax = tmax
+    return feat_tmin, feat_tmax
+
+
+def get_feature_initial_time(feature, initial_time):
+    """Resolve per-feature initial_time for brain plots.
+
+    initial_time can be:
+    - scalar or None: used for all features
+    - dict: {'default': val, 'feature_name': val, ...}
+      Features not in dict use the 'default' key (None as fallback).
+    Values can be a single number/None or a list of numbers to generate
+    multiple brain plots at different time points.
+
+    Returns
+    -------
+    list : Always returns a list of time values (even for a single value).
+    """
+    if isinstance(initial_time, dict):
+        val = initial_time.get(feature, initial_time.get('default', None))
+    else:
+        val = initial_time
+    # Normalize to list
+    if isinstance(val, (list, tuple)):
+        return list(val)
+    return [val]
+
+
+def group_features_by_duration(features, trf_params):
+    """Group features by their (tmin, tmax) pair for fitting separate models."""
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for feature in features:
+        tmin, tmax = get_feature_tmin_tmax(feature, trf_params)
+        key = (tmin, tmax)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(feature)
+    return groups
+
+
 # ---------- Epoch Data ---------- #
 def define_events(subject, meg_data, epoch_id, epoch_keys=None):
     """
@@ -806,10 +866,53 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_a
     return input_arrays
 
 
-def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_power=False, alpha=0, n_jobs=4):
+def extract_best_alpha(rf):
+    """Extract best alpha from a fitted ReceptiveField.
 
-    # Define mTRF model
-    rf = ReceptiveField(tmin, tmax, meg_data.info['sfreq'], estimator=alpha, scoring='corrcoef', n_jobs=n_jobs)
+    Returns
+    -------
+    float or None
+        The best alpha value, or None if alpha was fixed (not cross-validated).
+    """
+    if hasattr(rf, 'best_alpha_'):
+        return rf.best_alpha_
+    return None
+
+
+def save_alpha_report(rf_results, subject_id, save_path, is_multi_region=False):
+    """Save a text report of the selected alpha values per duration group.
+
+    Parameters
+    ----------
+    rf_results : list of dict
+        Each dict has 'rf', 'features', 'tmin', 'tmax', and optionally 'best_alpha'.
+    subject_id : str
+        Subject identifier (or 'GA' for grand average summary).
+    save_path : str
+        Directory to save the report.
+    is_multi_region : bool
+        If True, rf is a dict of region -> RF objects.
+    """
+    lines = [f'Alpha Report - {subject_id}', '=' * 50, '']
+    for group in rf_results:
+        features_str = ', '.join(group['features'])
+        lines.append(f'Features: {features_str}')
+        lines.append(f'  Duration: tmin={group["tmin"]}, tmax={group["tmax"]}')
+        if is_multi_region and isinstance(group.get('best_alpha'), dict):
+            for region, alpha_val in group['best_alpha'].items():
+                lines.append(f'  Best alpha ({region}): {alpha_val}')
+        else:
+            lines.append(f'  Best alpha: {group.get("best_alpha", "N/A")}')
+        lines.append('')
+
+    os.makedirs(save_path, exist_ok=True)
+    report_path = os.path.join(save_path, f'alpha_report_{subject_id}.txt')
+    with open(report_path, 'w') as f:
+        f.write('\n'.join(lines))
+    print(f'Alpha report saved to {report_path}')
+
+
+def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_power=False, alpha=0, n_jobs=4):
 
     if chs_id != 'misc':
         # Get subset channels data as array
@@ -823,7 +926,7 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
         meg_sub = meg_data.copy()
         # Apply hilbert and extract envelope
         if fit_power:
-            meg_sub = meg_sub.apply_hilbert(envelope=True, picks='VE')
+            meg_sub = meg_sub.apply_hilbert(envelope=True, picks='misc')
 
     meg_data_array = meg_sub.get_data()
 
@@ -836,8 +939,45 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
     # Transpose to input the model
     meg_data_array = meg_data_array.T
 
-    # Fit TRF
+    sfreq = meg_data.info['sfreq']
+
+    # Cross-validate alpha if a list of candidates is provided
+    if isinstance(alpha, (list, tuple, np.ndarray)):
+        alphas = np.array(alpha, dtype=float)
+        n_times = meg_data_array.shape[0]
+        split = int(n_times * 0.8)
+
+        # Evaluate all alpha candidates
+        alphas = np.array(alpha, dtype=float)
+        scores = []
+        for a in alphas:
+            rf_cv = ReceptiveField(tmin, tmax, sfreq, estimator=float(a), scoring='corrcoef', n_jobs=n_jobs)
+            rf_cv.fit(model_input[:split], meg_data_array[:split])
+            score = np.mean(rf_cv.score(model_input[split:], meg_data_array[split:]))
+            scores.append(score)
+            print(f'    alpha={a}: score={score:.6f}')
+            del rf_cv
+
+        # Pick largest alpha within 1% of the best score
+        scores = np.array(scores)
+        best_score = np.max(scores)
+        tolerance = 0.01 * abs(best_score)
+        # Among alphas with score >= best_score - tolerance, pick the largest
+        within_tol = alphas[scores >= best_score - tolerance]
+        best_alpha = float(np.max(within_tol))
+
+        print(f'  Best alpha: {best_alpha} (best_score={best_score:.6f}, tol={tolerance:.6f})')
+
+        print(f'  Best alpha: {best_alpha} (score={best_score:.4f})')
+        estimator = best_alpha
+    else:
+        estimator = alpha
+
+    # Final fit on all data
+    rf = ReceptiveField(tmin, tmax, sfreq, estimator=estimator, scoring='corrcoef', n_jobs=n_jobs)
     rf.fit(model_input, meg_data_array)
+    # Store selected alpha for later retrieval
+    rf.best_alpha_ = estimator if isinstance(alpha, (list, tuple, np.ndarray)) else None
 
     return rf
 
@@ -889,27 +1029,53 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
                                            bad_annotations_array=bad_annotations_array,
                                            subj_path=subj_path, fname=fname_var)
 
-    # Concatenate input arrays as one
-    model_input = np.array([input_arrays[key] for key in input_arrays.keys()]).T
-    # All regions or selected (multiple) regions
-    if meg_params['chs_id'] == 'mag' or '_' in meg_params['chs_id']:
-        # rf as a dictionary containing the rf of each region
-        rf = {}
-        # iterate over regions
-        for chs_subset in all_chs_regions:
-            # Use only regions in channels id, or all in case of chs_id == 'mag'
-            print(f'Fitting mTRF for region {chs_subset}')
-            rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=trf_params['tmin'], tmax=trf_params['tmax'], alpha=alpha, fit_power=trf_params['fit_power'],
-                                                         model_input=model_input, chs_id=chs_subset, standarize=trf_params['standarize'], n_jobs=4)
-    # One region
-    else:
-        rf = fit_mtrf(meg_data=meg_data, tmin=trf_params['tmin'], tmax=trf_params['tmax'], alpha=alpha, fit_power=trf_params['fit_power'],
-                                                             model_input=model_input, chs_id=meg_params['chs_id'], standarize=trf_params['standarize'], n_jobs=4)
+    # Group features by (tmin, tmax) duration and fit separate models per group
+    duration_groups = group_features_by_duration(features, trf_params)
+    is_multi_region = meg_params['chs_id'] == 'mag' or '_' in meg_params['chs_id']
+
+    rf_results = []
+    for (group_tmin, group_tmax), group_features in duration_groups.items():
+        group_input = np.array([input_arrays[f] for f in group_features]).T
+
+        # All regions or selected (multiple) regions
+        if is_multi_region:
+            group_rf = {}
+            best_alpha = {}
+            for chs_subset in all_chs_regions:
+                print(f'Fitting mTRF for region {chs_subset} (tmin={group_tmin}, tmax={group_tmax})')
+                group_rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
+                                                fit_power=trf_params['fit_power'], model_input=group_input,
+                                                chs_id=chs_subset, standarize=trf_params['standarize'], n_jobs=4)
+                region_alpha = extract_best_alpha(group_rf[chs_subset])
+                if region_alpha is not None:
+                    best_alpha[chs_subset] = region_alpha
+                    print(f'  Best alpha ({chs_subset}): {region_alpha}')
+        # One region
+        else:
+            group_rf = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
+                                fit_power=trf_params['fit_power'], model_input=group_input,
+                                chs_id=meg_params['chs_id'], standarize=trf_params['standarize'], n_jobs=4)
+            best_alpha = extract_best_alpha(group_rf)
+            if best_alpha is not None:
+                print(f'  Best alpha: {best_alpha}')
+
+        rf_results.append({
+            'rf': group_rf,
+            'features': group_features,
+            'tmin': group_tmin,
+            'tmax': group_tmax,
+            'best_alpha': best_alpha,
+        })
+
+    # Save alpha report
+    if trf_path:
+        save_alpha_report(rf_results, subject.subject_id, trf_path, is_multi_region=is_multi_region)
+
     # Save TRF
     if save_data:
-        save.var(var=rf, path=trf_path, fname=trf_fname)
+        save.var(var=rf_results, path=trf_path, fname=trf_fname)
 
-    return rf
+    return rf_results
 
 
 def make_trf_evoked(subject, rf, meg_data, trf_params, meg_params, feature_index, feature, feature_evokeds=None, display_figs=False, plot_individuals=True, save_fig=True, fig_path=None):
@@ -954,7 +1120,8 @@ def make_trf_evoked(subject, rf, meg_data, trf_params, meg_params, feature_index
 
     # Plot
     if plot_individuals:
-        fig = subj_evoked.plot(spatial_colors=True, gfp=True, show=display_figs, xlim=(trf_params['tmin'], trf_params['tmax']), titles=feature)
+        margin = trf_params.get('plot_margin', 0)
+        fig = subj_evoked.plot(spatial_colors=True, gfp=True, show=display_figs, xlim=(trf_params['tmin'] + margin, trf_params['tmax'] - margin), titles=feature)
         fig.suptitle(f'{feature}')
 
         if save_fig:
@@ -969,24 +1136,8 @@ def make_trf_evoked(subject, rf, meg_data, trf_params, meg_params, feature_index
 def parse_trf_to_evoked(subject, rf, meg_data, trf_params, meg_params, sub_idx, feature_evokeds=None, display_figs=False, plot_individuals=False, save_fig=False, fig_path=None):
     """
     Get model coeficients as separate responses to each feature.
-
-    Parameters
-    ----------
-    subject
-    rf
-    meg_data
-    evokeds
-    trf_params
-    trial_params
-    meg_params
-    display_figs
-    plot_individuals
-    save_fig
-    fig_path
-
-    Returns
-    -------
-
+    Supports both legacy rf (single ReceptiveField / dict of region->RF)
+    and new per-duration-group format (list of group dicts from compute_trf).
     """
 
     # Sanity check
@@ -994,13 +1145,45 @@ def parse_trf_to_evoked(subject, rf, meg_data, trf_params, meg_params, sub_idx, 
         raise ValueError('Please provide path and filename to save figure. Else, set save_fig to false.')
 
     elements = feature_evokeds.keys()
-    feature_index = 0
-    for feature in elements:
 
-        feature_evokeds = make_trf_evoked(subject=subject, rf=rf, meg_data=meg_data, feature_evokeds=feature_evokeds,
-                                  trf_params=trf_params, feature_index=feature_index, feature=feature, meg_params=meg_params,
-                                  plot_individuals=plot_individuals, display_figs=display_figs, save_fig=save_fig, fig_path=fig_path)
-        feature_index += 1
+    if isinstance(rf, list):
+        # Per-duration-group structure from compute_trf
+        feature_map = {}
+        for group in rf:
+            for idx, feat in enumerate(group['features']):
+                feature_map[feat] = {
+                    'rf': group['rf'],
+                    'feature_index': idx,
+                    'tmin': group['tmin'],
+                    'tmax': group['tmax'],
+                }
+
+        for feature in elements:
+            if feature in feature_map:
+                fmap = feature_map[feature]
+                feat_trf_params = dict(trf_params)
+                feat_trf_params['tmin'] = fmap['tmin']
+                feat_trf_params['tmax'] = fmap['tmax']
+                feat_trf_params['baseline'] = (fmap['tmin'], fmap['tmax'])
+                feature_evokeds = make_trf_evoked(subject=subject, rf=fmap['rf'], meg_data=meg_data,
+                                                  feature_evokeds=feature_evokeds,
+                                                  trf_params=feat_trf_params, feature_index=fmap['feature_index'],
+                                                  feature=feature, meg_params=meg_params,
+                                                  plot_individuals=plot_individuals, display_figs=display_figs,
+                                                  save_fig=save_fig, fig_path=fig_path)
+    else:
+        # Legacy format (single RF or dict of region->RF)
+        feature_index = 0
+        for feature in elements:
+            feat_tmin, feat_tmax = get_feature_tmin_tmax(feature, trf_params)
+            feat_trf_params = dict(trf_params)
+            feat_trf_params['tmin'] = feat_tmin
+            feat_trf_params['tmax'] = feat_tmax
+            feat_trf_params['baseline'] = (feat_tmin, feat_tmax)
+            feature_evokeds = make_trf_evoked(subject=subject, rf=rf, meg_data=meg_data, feature_evokeds=feature_evokeds,
+                                      trf_params=feat_trf_params, feature_index=feature_index, feature=feature, meg_params=meg_params,
+                                      plot_individuals=plot_individuals, display_figs=display_figs, save_fig=save_fig, fig_path=fig_path)
+            feature_index += 1
 
     if trf_params.get('add_features'):
         if sub_idx == 0:
@@ -1009,9 +1192,11 @@ def parse_trf_to_evoked(subject, rf, meg_data, trf_params, meg_params, sub_idx, 
         for i in range(len(trf_params['add_features'])):
             data += feature_evokeds[trf_params['add_features'][i]][sub_idx].data
 
-        # Define evoked objects from arrays of TRF
+        # Use the first add_feature's duration for the combined evoked
         info = feature_evokeds[trf_params['add_features'][0]][sub_idx].info
-        add_evoked = mne.EvokedArray(data=data, info=info, tmin=trf_params['tmin'], baseline=trf_params['baseline'])
+        first_feat = trf_params['add_features'][0]
+        first_tmin, first_tmax = get_feature_tmin_tmax(first_feat, trf_params)
+        add_evoked = mne.EvokedArray(data=data, info=info, tmin=first_tmin, baseline=(first_tmin, first_tmax))
 
         feature_evokeds['+'.join(trf_params['add_features'])].append(add_evoked)
 
@@ -1029,8 +1214,13 @@ def trf_grand_average(feature_evokeds, trf_params, meg_params, display_figs=Fals
         # Compute grand average
         grand_avg[feature] = mne.grand_average(feature_evokeds[feature], interpolate_bads=True)
 
+        # Use per-feature time limits and plot margin
+        feat_tmin, feat_tmax = get_feature_tmin_tmax(feature, trf_params)
+        margin = trf_params.get('plot_margin', 0)
+
         # Plot
-        fig = grand_avg[feature].plot(spatial_colors=True, gfp=True, show=display_figs, xlim=(trf_params['tmin'], trf_params['tmax']), titles=feature)
+        fig = grand_avg[feature].plot(spatial_colors=True, gfp=True, show=display_figs,
+                                      xlim=(feat_tmin + margin, feat_tmax - margin), titles=feature)
 
         if save_fig:
             # Save

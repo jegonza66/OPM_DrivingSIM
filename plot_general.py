@@ -635,6 +635,7 @@ def plot_trf_features(grand_avg,
                       joint_ylims=dict(mag=[-500, 500]),
                       vlims_topo=[None, None],
                       vlims_tfce_topo=[None, None],
+                      plot_margin=0,
                       save_fig=False,
                       fig_path=None,
                       fname=None
@@ -642,10 +643,17 @@ def plot_trf_features(grand_avg,
 
     # If no permutations, plot everything
     if not clusters_mask:
-        clusters_mask = {key: np.ones_like(grand_avg[key].data, dtype=bool) for key in grand_avg.keys()}
+        clusters_mask_plot = {key: np.ones_like(grand_avg[key].data, dtype=bool) for key in grand_avg.keys()}
 
-    if not xlim:
-        xlim = [grand_avg[list(grand_avg.keys())[0]].times[0], grand_avg[list(grand_avg.keys())[0]].times[-1]]
+    # Build per-feature xlim: derive from each feature's evoked times + margin
+    feature_xlims = {}
+    for coeff in grand_avg.keys():
+        if xlim:
+            feat_xlim = list(xlim)
+        else:
+            feat_xlim = [grand_avg[coeff].times[0], grand_avg[coeff].times[-1]]
+        feat_xlim = [feat_xlim[0] + plot_margin, feat_xlim[1] - plot_margin]
+        feature_xlims[coeff] = feat_xlim
 
     top_slide = 0.035
     horizontal_jump = 1/(len(grand_avg.keys()))*0.98
@@ -658,7 +666,7 @@ def plot_trf_features(grand_avg,
     fig = plt.figure(constrained_layout=False, figsize=figsize)
 
     # Get max signifficant channels at any time and coeff
-    max_sig_chs = max([max(clusters_mask[coeff].sum(axis=0)) for coeff in grand_avg.keys()])
+    max_sig_chs = max([max(clusters_mask_plot[coeff].sum(axis=0)) for coeff in grand_avg.keys()])
 
     jump = 0
     for i, coeff in enumerate(grand_avg.keys()):
@@ -685,11 +693,11 @@ def plot_trf_features(grand_avg,
         else:
             joint_ylims_plot = joint_ylims
         if top_topos:
-            grand_avg[coeff].plot_joint(title="", ts_args={'xlim': xlim, 'ylim': joint_ylims_plot, 'axes': ax_frp, 'titles': dict(eeg=''), 'window_title': '', 'units': 'A.U.'},
+            grand_avg[coeff].plot_joint(title="", ts_args={'xlim': feature_xlims[coeff], 'ylim': joint_ylims_plot, 'axes': ax_frp, 'titles': dict(eeg=''), 'window_title': '', 'units': 'A.U.'},
                                     topomap_args={'vlim':vlims_topo, 'axes': axs_topos, 'size': 3, 'sensors': False},
                                     show=False)
         else:
-            grand_avg[coeff].plot(axes=ax_frp, titles='', window_title='', xlim=xlim, ylim=joint_ylims_plot, units='A.U.', show=False)
+            grand_avg[coeff].plot(axes=ax_frp, titles='', window_title='', xlim=feature_xlims[coeff], ylim=joint_ylims_plot, units='A.U.', show=False)
 
         # clean axis
         ax_frp.set_xlabel([])
@@ -708,16 +716,20 @@ def plot_trf_features(grand_avg,
         ax_tfce.legend().set_visible(False)
 
         # TFCE Plot
-        if time_topos is None:
-            cluster_sums = clusters_mask[coeff].sum(axis=0)
-            # Find the index corresponding to the maximum sum within the given time limits
-            suggested_topo_idx = np.argmax(cluster_sums)
-            time_plot = grand_avg[coeff].times[suggested_topo_idx]
-        elif isinstance(time_topos, list):
+        if isinstance(time_topos, dict) and coeff in time_topos.keys() and time_topos[coeff]:
             time_plots = time_topos
             time_plot = time_plots[coeff]  # For highlighting a specific time.
         elif isinstance(time_topos, float) or isinstance(time_topos, int):
             time_plot = time_topos
+        elif not clusters_mask:
+            time_plot = 0.0
+        else:
+            cluster_sums = clusters_mask_plot[coeff].sum(axis=0)
+            # Find the index corresponding to the maximum sum within the given time limits
+            suggested_topo_idx = np.argmax(cluster_sums)
+            time_plot = grand_avg[coeff].times[suggested_topo_idx]
+
+        print(coeff, time_plot)
 
         ax_frp.axvline(time_plot, ls="--", color="k", lw=1)
         ax_frp.axvline(0, ls="-", color="k", lw=.9)
@@ -732,11 +744,11 @@ def plot_trf_features(grand_avg,
         colors_plot[:, :3] *= 0.6  # Multiply RGB values by 0.7 to darken them
         custom_cmap = colors.ListedColormap(colors_plot)
         # title = 'TFCE p-value'# with alpha level={pval_threshold}'
-        grand_avg[coeff].plot_image(cmap='RdBu_r', mask=clusters_mask[coeff], mask_style='mask', mask_alpha=0.5,
-                                titles=None, axes=ax_tfce, show=False, xlim=xlim, mask_cmap=custom_cmap, colorbar=False)
+        grand_avg[coeff].plot_image(cmap='RdBu_r', mask=clusters_mask_plot[coeff], mask_style='mask', mask_alpha=0.5,
+                                titles=None, axes=ax_tfce, show=False, xlim=feature_xlims[coeff], mask_cmap=custom_cmap, colorbar=False)
 
         if plot_total_sig_chs:
-            total_sig_chs = clusters_mask[coeff].sum(axis=0)
+            total_sig_chs = clusters_mask_plot[coeff].sum(axis=0)
             ax_tfce_twin = ax_tfce.twinx()
             ax_tfce_twin.plot(grand_avg[coeff].times,total_sig_chs, color='black')
             ax_tfce_twin.set_ylabel('Significant Channels')
@@ -761,7 +773,7 @@ def plot_trf_features(grand_avg,
         coeff_data = grand_avg[coeff].get_data()
         topo, cm = mne.viz.plot_topomap(
             coeff_data[:, ix_plot], pos=grand_avg[coeff].info, axes=ax_tfce_topo, show=False, vlim=vlims_tfce_topo,  # vlim=(-max_coef, max_coef)
-            mask=clusters_mask[coeff][:, ix_plot], mask_params=dict(marker='o', markerfacecolor='w', markeredgecolor='grey',
+            mask=clusters_mask_plot[coeff][:, ix_plot], mask_params=dict(marker='o', markerfacecolor='w', markeredgecolor='grey',
                                                              linewidth=0, markersize=2), contours=4, cmap='RdBu_r')
         if vlims_tfce_topo[0] and vlims_tfce_topo[1]:
             v1 = np.linspace(vlims_tfce_topo[0], vlims_tfce_topo[1], 5, endpoint=True)
@@ -795,6 +807,154 @@ def plot_trf_features(grand_avg,
         if not fname:
             fname = 'GA_features'
         save.fig(fig=fig, path=fig_path, fname=fname)
+
+    return fig
+
+
+def plot_source_evoked_spatial(evoked, label_positions, gfp=True, xlim=None, title=None,
+                               display_figs=True, save_fig=False, fig_path=None, fname=None):
+    """Plot source evoked with spatial colors based on region positions and a head diagram.
+
+    Colors each time series based on the 3D position of its corresponding brain region,
+    similar to MNE's spatial_colors=True for sensor-space data. Includes a head diagram
+    with colored dots indicating each region's position.
+
+    Parameters
+    ----------
+    evoked : mne.Evoked
+        Evoked object with label/region names as channels.
+    label_positions : dict
+        {label_name: np.array([x, y, z])} positions in head/MNI coordinates (meters).
+    gfp : bool
+        Whether to plot the Global Field Power.
+    xlim : tuple or None
+        (tmin, tmax) for x-axis limits.
+    title : str or None
+        Plot title.
+    display_figs : bool
+        Whether to show the figure.
+    save_fig : bool
+        Whether to save the figure.
+    fig_path : str or None
+        Path to save figure.
+    fname : str or None
+        Filename for saving.
+    """
+    from matplotlib.patches import Circle
+
+    ch_names = evoked.ch_names
+    positions_3d = []
+    valid_chs = []
+    valid_indices = []
+    for i, ch in enumerate(ch_names):
+        if ch in label_positions:
+            positions_3d.append(label_positions[ch])
+            valid_chs.append(ch)
+            valid_indices.append(i)
+
+    if len(valid_chs) == 0:
+        print("Warning: No matching channel positions found for spatial coloring. Falling back to default plot.")
+        return evoked.plot(spatial_colors=False, gfp=gfp, show=display_figs, xlim=xlim, titles=title)
+
+    positions_3d = np.array(positions_3d)
+
+    # Project to 2D: x = left-right, y = anterior-posterior (top-down view)
+    pos_2d = positions_3d[:, :2].copy()
+
+    # Normalize to [0, 1]
+    pos_norm = np.zeros_like(pos_2d)
+    for dim in range(2):
+        pmin, pmax = pos_2d[:, dim].min(), pos_2d[:, dim].max()
+        if pmax > pmin:
+            pos_norm[:, dim] = (pos_2d[:, dim] - pmin) / (pmax - pmin)
+        else:
+            pos_norm[:, dim] = 0.5
+
+    # Map positions to colors (MNE-style: R=x, G=y, B=1-x)
+    ch_colors = np.column_stack([
+        pos_norm[:, 0],
+        pos_norm[:, 1],
+        1 - pos_norm[:, 0],
+    ])
+    # Normalize per-channel to ensure brightness
+    ch_colors = ch_colors / (ch_colors.max(axis=1, keepdims=True) + 1e-10)
+    ch_colors = np.clip(ch_colors, 0, 1)
+
+    # Create figure with time series and head diagram
+    fig = plt.figure(figsize=(14, 5))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[4, 1], wspace=0.05)
+    ax_ts = fig.add_subplot(gs[0])
+    ax_head = fig.add_subplot(gs[1])
+
+    # Plot time series
+    times = evoked.times
+    data = evoked.data
+    for ci, (ch_idx, ch) in enumerate(zip(valid_indices, valid_chs)):
+        ax_ts.plot(times, data[ch_idx], color=ch_colors[ci], alpha=0.7, linewidth=0.8)
+
+    # Plot channels without positions in grey
+    for i, ch in enumerate(ch_names):
+        if ch not in label_positions:
+            ax_ts.plot(times, data[i], color='0.7', alpha=0.3, linewidth=0.5)
+
+    # GFP
+    if gfp:
+        gfp_data = np.std(data, axis=0)
+        ax_ts.fill_between(times, 0, gfp_data, alpha=0.15, color='black', label='GFP')
+
+    ax_ts.axvline(0, color='k', linestyle='--', linewidth=0.8)
+    ax_ts.set_xlabel('Time (s)')
+    ax_ts.set_ylabel('Amplitude (A.U.)')
+    if xlim:
+        ax_ts.set_xlim(xlim)
+    if title:
+        ax_ts.set_title(title)
+
+    # ---- Head diagram ----
+    head_center = (0.5, 0.5)
+    head_radius = 0.42
+
+    # Head outline
+    head_circle = Circle(head_center, head_radius, fill=False, edgecolor='black', linewidth=2)
+    ax_head.add_patch(head_circle)
+
+    # Nose (triangle pointing up)
+    nose_y = head_center[1] + head_radius
+    ax_head.plot([0.46, 0.5, 0.54], [nose_y, nose_y + 0.07, nose_y], 'k-', linewidth=1.5, solid_capstyle='round')
+
+    # Ears
+    ear_y = head_center[1]
+    # Left ear
+    lx = head_center[0] - head_radius
+    ax_head.plot([lx, lx - 0.04, lx - 0.04, lx], [ear_y + 0.05, ear_y + 0.03, ear_y - 0.03, ear_y - 0.05],
+                 'k-', linewidth=1.5, solid_capstyle='round')
+    # Right ear
+    rx = head_center[0] + head_radius
+    ax_head.plot([rx, rx + 0.04, rx + 0.04, rx], [ear_y + 0.05, ear_y + 0.03, ear_y - 0.03, ear_y - 0.05],
+                 'k-', linewidth=1.5, solid_capstyle='round')
+
+    # Plot colored dots at projected region positions
+    for ci in range(len(valid_chs)):
+        # Map normalized brain position to head circle coordinates
+        hx = head_center[0] + (pos_norm[ci, 0] - 0.5) * 2 * head_radius * 0.85
+        hy = head_center[1] + (pos_norm[ci, 1] - 0.5) * 2 * head_radius * 0.85
+        ax_head.scatter(hx, hy, c=[ch_colors[ci]], s=25, zorder=5, edgecolors='0.3', linewidths=0.3)
+
+    ax_head.set_xlim(-0.1, 1.1)
+    ax_head.set_ylim(-0.1, 1.15)
+    ax_head.set_aspect('equal')
+    ax_head.axis('off')
+    ax_head.set_title('Regions', fontsize=10)
+
+    fig.tight_layout()
+
+    if save_fig:
+        if not fname or not fig_path:
+            raise ValueError('Please provide path and filename to save figure.')
+        save.fig(fig=fig, path=fig_path, fname=fname)
+
+    if not display_figs:
+        plt.close(fig)
 
     return fig
 
@@ -1129,7 +1289,13 @@ def connectivity_strength(subject, subject_code, con, src, labels, surf_vol, sub
 
 
 def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsaverage, source_estimation, save_fig=False, fig_path=None, fname=None, surface='pial', hemi='split', views='lateral',
-            alpha=1, mask_negatives=False, time_label='auto', save_vid=False, positive_cbar=None, clim=None):
+            alpha=1, mask_negatives=False, time_label='auto', save_vid=False, positive_cbar=None, clim=None, plot_margin=0):
+
+    # Crop stc to exclude edge artifacts if plot_margin is set
+    if plot_margin > 0:
+        crop_tmin = stc.times[0] + plot_margin
+        crop_tmax = stc.times[-1] - plot_margin
+        stc = stc.copy().crop(tmin=crop_tmin, tmax=crop_tmax)
 
     # Close all plot figures
     try:

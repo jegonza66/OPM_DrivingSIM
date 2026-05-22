@@ -25,7 +25,7 @@ else:
 trial_params = {}
 
 meg_params = {'chs_id': 'mag_z',
-              'band_id': None,
+              'band_id': (0.1, 40),
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -33,28 +33,46 @@ meg_params = {'chs_id': 'mag_z',
 # TRF parameters
 trf_params = {
     'input_features': {
-        # 'fix': None,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
-        # 'sac': None,
-        # 'pur': None,
-        # 'DAall': None,
-        # 'Steering_std_der': None,
+        'fix': None,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
+        'sac': None,
+        'pur': None,
+        'Steering_std_der': None,
         'audio_env_std': None,
-        # 'gas_std_der': None,
-        # 'brake_std_der': None,
-        # 'left_but': None,
-        # 'right_but': None
+        'Gas_std_der': None,
+        'Brake_std_der': None,
+        'left_but': None,
+        'right_but': None
     },  # Select features (events)
     'standarize': True,
     'fit_power': False,
-    'alpha': None,
-    'tmin': -0.2,
-    'tmax': 0.5,
+    'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
+    # Per-feature duration: use dict with 'default' key and optional per-feature overrides
+    # e.g. 'tmin': {'default': -0.2, 'left_but': -2}, 'tmax': {'default': 0.5, 'left_but': 2}
+    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2},
+    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'left_but': 2, 'right_but': 2},
+    'plot_margin': 0.15,  # seconds to crop from each side of plotted TRF time series
 }
-trf_params['baseline'] = (trf_params['tmin'], trf_params['tmax'])
+
+time_topos = {
+        'fix': 0.7,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
+        'sac': 1.2,
+        'pur': None,
+        'Steering_std_der': None,
+        'audio_env_std': 0.0,
+        'Gas_std_der': None,
+        'Brake_std_der': None,
+        'left_but': None,
+        'right_but': None
+    }
+
 
 # Figure path
-fig_path = paths.plots_path + (f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{trf_params['input_features']}"
-                               f"_{trf_params['tmin']}_{trf_params['tmax']}_bline{trf_params['baseline']}_alpha{trf_params['alpha']}_"
+_path_tmin = trf_params['tmin'].get('default') if isinstance(trf_params['tmin'], dict) else trf_params['tmin']
+_path_tmax = trf_params['tmax'].get('default') if isinstance(trf_params['tmax'], dict) else trf_params['tmax']
+_path_bline = (_path_tmin, _path_tmax)
+_alpha_tag = f'_alpha{trf_params["alpha"]}' if trf_params['alpha'] is None else '_alphaCV'
+fig_path = paths.plots_path + (f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{functions_general.features_path_str(trf_params['input_features'])}"
+                               f"_{_path_tmin}_{_path_tmax}_bline{_path_bline}{_alpha_tag}_"
                                f"std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")
 
 # Change path to include envelope power
@@ -119,4 +137,7 @@ fname = f'GA_features_TFCE'
 for feature in grand_avg.keys():
     grand_avg[feature].pick(functions_general.pick_chs(chs_id='_z', info=grand_avg[feature].info))
 
-fig = plot_general.plot_trf_features(grand_avg=grand_avg, joint_ylims=joint_ylims, time_topos=0, top_topos=False, save_fig=save_fig, fig_path=fig_path, fname=fname)
+
+fig = plot_general.plot_trf_features(grand_avg=grand_avg, joint_ylims=joint_ylims, time_topos=time_topos, top_topos=False,
+                                     plot_margin=trf_params.get('plot_margin', 0),
+                                     save_fig=save_fig, fig_path=fig_path, fname=fname)
