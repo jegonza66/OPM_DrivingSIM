@@ -391,3 +391,30 @@ def get_stim_channel_names(meg_data):
     stim_channels = [ch_names[i] for i, ch_type in enumerate(ch_types) if ch_type == 'stim']
 
     return stim_channels
+
+
+def features_path_str(input_features):
+    """
+    Format input_features for use in file paths.
+    If input_features is a dict, features with None values are listed by key
+    name only (no 'None'). Features with actual values show 'key: value'.
+
+    Parameters
+    ----------
+    input_features : dict or list or str
+        The input_features parameter from trf_params.
+
+    Returns
+    -------
+    str
+        A clean string representation for use in paths.
+    """
+    if isinstance(input_features, dict):
+        parts = []
+        for k, v in input_features.items():
+            if v is None:
+                parts.append(k)
+            else:
+                parts.append(f'{k}: {v}')
+        return '{' + ', '.join(parts) + '}'
+    return str(input_features)

@@ -407,7 +407,7 @@ for param in param_values.keys():
 
                 # Get trf paths
                 trf_path = paths.save_path + (
-                    f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{trf_params['input_features']}_{trf_params['tmin']}_{trf_params['tmax']}_"
+                    f"TRF_{meg_params['data_type']}/Band_{meg_params['band_id']}/{functions_general.features_path_str(trf_params['input_features'])}_{trf_params['tmin']}_{trf_params['tmax']}_"
                     f"bline{trf_params['baseline']}_alpha{trf_params['alpha']}_std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")
                 trf_fig_path = trf_path.replace(paths.save_path, paths.plots_path)
                 trf_fname = f'TRF_{subject.subject_id}.pkl'

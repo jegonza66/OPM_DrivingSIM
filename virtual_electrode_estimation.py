@@ -137,7 +137,7 @@ for subject_id in exp_info.subjects_ids:  # Process first 3 subjects as example
     # Create save paths
     # Main run path
     if trf_params['run_mtrf']:
-        run_path = f'Band_{meg_params["band_id"]}/{trf_params['input_features']}_task{task}_{tmin}_{tmax}_bline{baseline}_{method_str}{coord_str}/'
+        run_path = f'Band_{meg_params["band_id"]}/{functions_general.features_path_str(trf_params["input_features"])}_task{task}_{tmin}_{tmax}_bline{baseline}_{method_str}{coord_str}/'
     else:
         run_path = f'Band_{meg_params["band_id"]}/{trial_params['epoch_id']}_task{task}_{tmin}_{tmax}_bline{baseline}_{method_str}{coord_str}/'
 
