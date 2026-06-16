@@ -1,7 +1,10 @@
 import os
 
-scripts_path = os.path.dirname(os.path.realpath(__name__))
-main_path = scripts_path.replace('Scripts', '')
+# Anchor paths to the location of this file (always inside the Scripts folder),
+# so modules work regardless of the current working directory (e.g. when run
+# from a subfolder such as Scripts/dynemo).
+scripts_path = os.path.dirname(os.path.realpath(__file__))
+main_path = os.path.dirname(scripts_path) + os.sep
 
 # Check that DATA folder exists in main_path
 data_path_exists = os.path.exists(main_path + 'DATA/')
@@ -55,3 +58,32 @@ dynemo_generic_data_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Generic_D
 dynemo_infered_results_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Infered_Results")
 
 dynemo_spectra_path = os.path.join(main_path, "Save/DyNeMo/DyNeMo_Spectra")
+
+# ----------------------------------------------------------------------------
+# DyNeMo pipeline paths
+# ----------------------------------------------------------------------------
+# Atlas / parcellation niftis (e.g. fmri_d100..._ds8mm.nii.gz, MNI152_T1_8mm_brain.nii.gz)
+atlas_path = os.path.join(mri_path, 'atlases')
+
+# Event/correlation tables used by the temporal analysis (script V)
+correlation_path = main_path + 'Save/Correlation/'
+
+# DyNeMo root and derived data/model paths
+dynemo_path = os.path.join(main_path, "Save/DyNeMo")
+dynemo_preprocessing = os.path.join(dynemo_path, "DyNeMo_Preprocessing")
+dynemo_object_data_path = os.path.join(dynemo_path, "DyNeMo_Object_Data")
+dynemo_prepared_data_path = os.path.join(dynemo_path, "DyNeMo_Prepared_Data")
+dynemo_trained_data_path = os.path.join(dynemo_path, "DyNeMo_Trained_Model")
+dynemo_infered_parameters_path = os.path.join(dynemo_path, "DyNeMo_Infered_Parameters")
+dynemo_temporal_analysis_path = os.path.join(dynemo_path, "DyNeMo_Temporal_Analysis")
+
+# DyNeMo plot paths
+dynemo_plots_path = os.path.join(plots_path, "DyNeMo")
+dynemo_plots_PSD_path = os.path.join(dynemo_plots_path, "PSD")
+dynemo_plots_power_map_path = os.path.join(dynemo_plots_path, "Power_Maps")
+dynemo_plots_coherence_networks_path = os.path.join(dynemo_plots_path, "Coherence_Networks")
+dynemo_plots_coherence_maps_path = os.path.join(dynemo_plots_path, "Coherence_Maps")
+dynemo_plots_mixing_coefficients_path = os.path.join(dynemo_plots_path, "Mixing_Coefficients")
+dynemo_plots_training_path = os.path.join(dynemo_plots_path, "Training")
+dynemo_plots_temporal_analysis_path = os.path.join(dynemo_plots_path, "Temporal_Analysis")
+dynemo_plots_preprocessing_path = os.path.join(dynemo_plots_path, "Preprocessing")
