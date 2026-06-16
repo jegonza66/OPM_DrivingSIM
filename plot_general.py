@@ -690,14 +690,34 @@ def plot_trf_features(grand_avg,
         grand_avg[coeff].nave = None
         if joint_ylims and len(joint_ylims) == len(grand_avg.keys()):
             joint_ylims_plot = joint_ylims[i]
-        else:
+        elif joint_ylims:
             joint_ylims_plot = joint_ylims
+        else:
+            joint_ylims_plot = None
         if top_topos:
             grand_avg[coeff].plot_joint(title="", ts_args={'xlim': feature_xlims[coeff], 'ylim': joint_ylims_plot, 'axes': ax_frp, 'titles': dict(eeg=''), 'window_title': '', 'units': 'A.U.'},
                                     topomap_args={'vlim':vlims_topo, 'axes': axs_topos, 'size': 3, 'sensors': False},
                                     show=False)
         else:
             grand_avg[coeff].plot(axes=ax_frp, titles='', window_title='', xlim=feature_xlims[coeff], ylim=joint_ylims_plot, units='A.U.', show=False)
+
+        # If no explicit ylims, rescale y-axis to fit only the visible (trimmed) time window
+        if joint_ylims_plot is None:
+            t0, t1 = feature_xlims[coeff]
+            time_mask = (grand_avg[coeff].times >= t0) & (grand_avg[coeff].times <= t1)
+            visible_data = grand_avg[coeff].data[:, time_mask]
+            # Read the current scaling from the plotted y-axis (MNE may apply unit scaling)
+            # by comparing plotted range to data range
+            current_ylim = ax_frp.get_ylim()
+            data_full_max = np.abs(grand_avg[coeff].data).max()
+            if data_full_max > 0:
+                scaling = max(abs(current_ylim[0]), abs(current_ylim[1])) / data_full_max
+            else:
+                scaling = 1.0
+            data_max = np.abs(visible_data).max()
+            if data_max > 0:
+                pad = data_max * scaling * 0.1
+                ax_frp.set_ylim(-data_max * scaling - pad, data_max * scaling + pad)
 
         # clean axis
         ax_frp.set_xlabel([])

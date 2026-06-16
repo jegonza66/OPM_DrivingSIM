@@ -18,6 +18,129 @@ from mni_to_atlas import AtlasBrowser
 exp_info = setup.exp_info()
 
 
+def get_experiment_phase_mask(subject_id, meg_data):
+    """Load experiment phase times and create phase masks for the MEG recording.
+
+    Phases:
+    - CF: Car Following only (CF active, DA inactive, Audio inactive)
+    - DA: Divided Attention (DA active; Audio takes priority if overlapping)
+    - Audio: Audiobook (Audio active)
+
+    Parameters
+    ----------
+    subject_id : str
+        Participant ID (e.g., '17359').
+    meg_data : mne.io.Raw
+        MEG data to determine time axis.
+
+    Returns
+    -------
+    dict : {'CF': np.ndarray, 'DA': np.ndarray, 'Audio': np.ndarray}
+        Boolean masks for each phase, same length as meg_data.times.
+    """
+    import csv
+
+    sfreq = meg_data.info['sfreq']
+    n_times = len(meg_data.times)
+    times = meg_data.times + meg_data.first_time  # absolute times in seconds
+
+    # Load CF times
+    with open(paths.bh_path + 'CF_EVENT_TIME_1.csv', 'r') as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+    cf_ids = rows[0]
+    cf_onsets = [float(x) for x in rows[1]]
+    cf_offsets = [float(x) for x in rows[2]]
+    cf_idx = cf_ids.index(str(subject_id)) if str(subject_id) in cf_ids else None
+
+    # Load Audio times
+    with open(paths.bh_path + 'AUDIO_EVENT_TIME_1.csv', 'r') as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+    audio_ids = rows[0]
+    audio_onsets = [float(x) for x in rows[1]]
+    audio_offsets = [float(x) for x in rows[2]]
+    audio_idx = audio_ids.index(str(subject_id)) if str(subject_id) in audio_ids else None
+
+    # Load DA times (60 stimuli, DA phase = first stimulus to last + 4s)
+    with open(paths.bh_path + 'DA_EVENT_TIME_1.csv', 'r') as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+    da_ids = rows[0]
+    da_idx = da_ids.index(str(subject_id)) if str(subject_id) in da_ids else None
+
+    # Build boolean masks
+    cf_mask = np.zeros(n_times, dtype=bool)
+    da_mask = np.zeros(n_times, dtype=bool)
+    audio_mask = np.zeros(n_times, dtype=bool)
+
+    if cf_idx is not None:
+        cf_on, cf_off = cf_onsets[cf_idx], cf_offsets[cf_idx]
+        cf_mask = (times >= cf_on) & (times <= cf_off)
+    else:
+        import warnings
+        warnings.warn(f'Subject {subject_id} not found in CF_EVENT_TIME_1.csv. CF mask will be all zeros.')
+
+    if da_idx is not None:
+        da_stim_times = [float(rows[r][da_idx]) for r in range(1, len(rows)) if rows[r][da_idx].strip()]
+        da_on = min(da_stim_times)
+        da_off = max(da_stim_times) + 4.0  # last stimulus + 4s duration
+        da_mask = (times >= da_on) & (times <= da_off)
+    else:
+        import warnings
+        warnings.warn(f'Subject {subject_id} not found in DA_EVENT_TIME_1.csv. DA mask will be all zeros.')
+
+    if audio_idx is not None:
+        audio_on, audio_off = audio_onsets[audio_idx], audio_offsets[audio_idx]
+        audio_mask = (times >= audio_on) & (times <= audio_off)
+    else:
+        import warnings
+        warnings.warn(f'Subject {subject_id} not found in AUDIO_EVENT_TIME_1.csv. Audio mask will be all zeros.')
+
+    # Audio takes priority over DA when they overlap
+    da_mask = da_mask & ~audio_mask
+
+    # CF-only: CF active but neither DA nor Audio
+    cf_only_mask = cf_mask & ~da_mask & ~audio_mask
+
+    print(f'  Phase masks - CF: {cf_only_mask.sum()/sfreq:.1f}s, '
+          f'DA: {da_mask.sum()/sfreq:.1f}s, Audio: {audio_mask.sum()/sfreq:.1f}s')
+
+    return {'CF': cf_only_mask, 'DA': da_mask, 'Audio': audio_mask}
+
+
+def expand_features(input_features):
+    """Expand input_features dict into a flat list of feature names.
+
+    Handles:
+    - None value: just the feature name (e.g., 'audio_env_std': None -> ['audio_env_std'])
+    - List of phase tags: base feature + phase-tagged variants
+      (e.g., 'fix': ['CF', 'DA', 'Audio'] -> ['fix', 'fix_CF', 'fix_DA', 'fix_Audio'])
+    - List of secondary variables (strings with no phase match):
+      (e.g., 'fix': ['on_mirror'] -> ['fix', 'fix-on_mirror'])
+
+    Returns
+    -------
+    list : Flat list of all feature names.
+    """
+    phase_names = {'CF', 'DA', 'Audio'}
+    features = []
+    for feature, values in input_features.items():
+        features.append(feature)
+        if isinstance(values, (list, tuple)):
+            for val in values:
+                if val in phase_names:
+                    features.append(f'{feature}_{val}')
+                else:
+                    features.append(f'{feature}-{val}')
+        elif isinstance(values, str):
+            if values in phase_names:
+                features.append(f'{feature}_{values}')
+            else:
+                features.append(f'{feature}-{values}')
+    return features
+
+
 # ---------- Per-feature TRF duration helpers ---------- #
 def get_feature_tmin_tmax(feature, trf_params):
     """Resolve per-feature tmin/tmax from trf_params.
@@ -758,6 +881,42 @@ def get_bad_annot_array(meg_data, subj_path, fname, save_var=True):
 def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_array,
                     subj_path, fname, save_var=True):
 
+    # Check for phase suffix (_CF, _DA, _Audio)
+    phase_suffix = None
+    phase_names = ['_CF', '_DA', '_Audio']
+    for ps in phase_names:
+        if var_name.endswith(ps):
+            phase_suffix = ps[1:]  # Remove leading underscore
+            base_feature = var_name[:-len(ps)]
+            break
+
+    if phase_suffix is not None:
+        # Phase-tagged feature: multiply base feature by phase mask
+        # First ensure the base feature array exists
+        if base_feature not in input_arrays:
+            base_fname = fname.replace(var_name, base_feature)
+            input_arrays = make_mtrf_input(
+                input_arrays=input_arrays, var_name=base_feature,
+                subject=subject, meg_data=meg_data,
+                bad_annotations_array=bad_annotations_array,
+                subj_path=subj_path, fname=base_fname, save_var=save_var)
+
+        # Get phase masks (cached on meg_data to avoid re-reading files)
+        if not hasattr(meg_data, '_phase_masks'):
+            meg_data._phase_masks = get_experiment_phase_mask(subject.subject_id, meg_data)
+
+        phase_mask = meg_data._phase_masks[phase_suffix]
+        input_array = input_arrays[base_feature] * phase_mask.astype(float)
+
+        # Exclude bad annotations
+        input_array = input_array * bad_annotations_array
+        input_arrays[var_name] = input_array
+
+        if save_var:
+            save.var(var=input_array, path=subj_path, fname=fname)
+
+        return input_arrays
+
     secondary_variable = False
     if '-' in var_name:
         secondary_variable = True
@@ -1217,10 +1376,26 @@ def trf_grand_average(feature_evokeds, trf_params, meg_params, display_figs=Fals
         # Use per-feature time limits and plot margin
         feat_tmin, feat_tmax = get_feature_tmin_tmax(feature, trf_params)
         margin = trf_params.get('plot_margin', 0)
+        t0, t1 = feat_tmin + margin, feat_tmax - margin
 
         # Plot
         fig = grand_avg[feature].plot(spatial_colors=True, gfp=True, show=display_figs,
-                                      xlim=(feat_tmin + margin, feat_tmax - margin), titles=feature)
+                                      xlim=(t0, t1), titles=feature)
+
+        # Rescale y-axis to fit only the visible (trimmed) time window
+        ax = fig.get_axes()[0]
+        time_mask = (grand_avg[feature].times >= t0) & (grand_avg[feature].times <= t1)
+        visible_data = grand_avg[feature].data[:, time_mask]
+        data_full_max = np.abs(grand_avg[feature].data).max()
+        current_ylim = ax.get_ylim()
+        if data_full_max > 0:
+            scaling = max(abs(current_ylim[0]), abs(current_ylim[1])) / data_full_max
+        else:
+            scaling = 1.0
+        data_max = np.abs(visible_data).max()
+        if data_max > 0:
+            pad = data_max * scaling * 0.1
+            ax.set_ylim(-data_max * scaling - pad, data_max * scaling + pad)
 
         if save_fig:
             # Save

@@ -51,7 +51,7 @@ else:
 
 # --------- Parameters ---------#
 meg_params = {'chs_id': 'mag_z',
-              'band_id': 'Beta',
+              'band_id': None,
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -68,23 +68,23 @@ pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing
 # TRF parameters
 trf_params = {
     'input_features': {
-        'fix': None,
-        'sac': None,
-        'pur': None,
+        'fix': ['CF','DA', 'Audio'],
+        'sac': ['CF','DA', 'Audio'],
+        # 'pur': ['CF','DA', 'Audio'],
         'audio_env_std': None,
         'Steering_std_der': None,
-        'gas_std_der': None,
-        'brake_std_der': None,
+        'Gas_std_der': None,
+        'Brake_std_der': None,
         'left_but': None,
         'right_but': None,
     },
     'standarize': True,
-    'fit_power': True,
+    'fit_power': False,
     'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
     # Per-feature duration: use dict with 'default' key and optional per-feature overrides
     # e.g. 'tmin': {'default': -0.2, 'left_but': -2}, 'tmax': {'default': 0.5, 'left_but': 2}
-    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2, 'gas_std_der': -2, 'brake_std_der': -2},
-    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'left_but': 2, 'right_but': 2, 'gas_std_der': 2, 'brake_std_der': 2},
+    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2, 'Gas_std_der': -2, 'Brake_std_der': -2},
+    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'left_but': 2, 'right_but': 2, 'Gas_std_der': 2, 'Brake_std_der': 2},
     'plot_margin': 0.15,  # seconds to crop from each side of plotted TRF time series
 }
 
@@ -94,12 +94,12 @@ initial_time = {'default': None,
                 'fix': None,
                 'sac': [0.0, 0.12],
                 'pur': None,
-                'audio_env_std': None,
-                'Steering_std_der': None,
-                'gas_std_der': None,
-                'brake_std_der': None,
-                'left_but': None,
-                'right_but': None,
+                'audio_env_std': 0.0,
+                'Steering_std_der': 0.0,
+                'Gas_std_der': 0.0,
+                'Brake_std_der': 0.0,
+                'left_but': 0.0,
+                'right_but': 0.0,
                 }
 
 # --------- Setup ---------#
@@ -108,15 +108,9 @@ os.environ["SUBJECTS_DIR"] = subjects_dir
 
 # Build feature evokeds dictionary
 feature_evokeds = {}
-elements = trf_params['input_features'].keys()
-for feature in elements:
+features = functions_analysis.expand_features(trf_params['input_features'])
+for feature in features:
     feature_evokeds[feature] = []
-    if isinstance(trf_params['input_features'], dict):
-        try:
-            for value in trf_params['input_features'][feature]:
-                feature_evokeds[f'{feature}-{value}'] = []
-        except:
-            pass
 
 features = list(feature_evokeds.keys())
 
@@ -135,7 +129,8 @@ _path_tmin = trf_params['tmin'].get('default') if isinstance(trf_params['tmin'],
 _path_tmax = trf_params['tmax'].get('default') if isinstance(trf_params['tmax'], dict) else trf_params['tmax']
 _path_bline = (_path_tmin, _path_tmax)
 _alpha_tag = f'_alpha{trf_params["alpha"]}' if trf_params['alpha'] is None else '_alphaCV'
-fig_path = paths.plots_path + (f"TRF_Source_{meg_params['data_type']}/Band_{meg_params['band_id']}/{parc_tag}/"
+_trf_prefix = 'TRF_ENV_Source' if trf_params['fit_power'] else 'TRF_Source'
+fig_path = paths.plots_path + (f"{_trf_prefix}_{meg_params['data_type']}/Band_{meg_params['band_id']}/{parc_tag}/"
                                f"{functions_general.features_path_str(trf_params['input_features'])}_{_path_tmin}_{_path_tmax}_"
                                f"bline{_path_bline}{_alpha_tag}_"
                                f"std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")

@@ -25,7 +25,7 @@ else:
 trial_params = {}
 
 meg_params = {'chs_id': 'mag_z',
-              'band_id': (0.1, 40),
+              'band_id': 'Theta',
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -85,16 +85,9 @@ save_path = fig_path.replace(paths.plots_path, paths.save_path)
 # Define Grand average variables
 feature_evokeds = {}
 
-elements = trf_params['input_features'].keys()
-for feature in elements:
+features = functions_analysis.expand_features(trf_params['input_features'])
+for feature in features:
     feature_evokeds[feature] = []
-    if isinstance(trf_params['input_features'], dict):
-        try:
-            for value in trf_params['input_features'][feature]:
-                feature_value = f'{feature}-{value}'
-                feature_evokeds[feature_value] = []
-        except:
-            pass
 
 # Iterate over subjects
 for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
