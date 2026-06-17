@@ -76,6 +76,8 @@ dynemo_prepared_data_path = os.path.join(dynemo_path, "DyNeMo_Prepared_Data")
 dynemo_trained_data_path = os.path.join(dynemo_path, "DyNeMo_Trained_Model")
 dynemo_infered_parameters_path = os.path.join(dynemo_path, "DyNeMo_Infered_Parameters")
 dynemo_temporal_analysis_path = os.path.join(dynemo_path, "DyNeMo_Temporal_Analysis")
+# Event-locked TRF of the DyNeMo mixing coefficients (script VI)
+dynemo_mixing_trf_path = os.path.join(dynemo_path, "DyNeMo_Mixing_TRF")
 
 # DyNeMo plot paths
 dynemo_plots_path = os.path.join(plots_path, "DyNeMo")
@@ -87,3 +89,4 @@ dynemo_plots_mixing_coefficients_path = os.path.join(dynemo_plots_path, "Mixing_
 dynemo_plots_training_path = os.path.join(dynemo_plots_path, "Training")
 dynemo_plots_temporal_analysis_path = os.path.join(dynemo_plots_path, "Temporal_Analysis")
 dynemo_plots_preprocessing_path = os.path.join(dynemo_plots_path, "Preprocessing")
+dynemo_plots_mixing_trf_path = os.path.join(dynemo_plots_path, "Mixing_TRF")
