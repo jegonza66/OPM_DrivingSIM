@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.signal import butter, lfilter
+import scipy.sparse
 import mne
 
 
@@ -391,6 +392,38 @@ def get_stim_channel_names(meg_data):
     stim_channels = [ch_names[i] for i, ch_type in enumerate(ch_types) if ch_type == 'stim']
 
     return stim_channels
+
+
+def get_channel_adjacency(info, ch_type='mag', picks=None, bads=None):
+
+    # Compute channel adjacency from montage info
+    ch_adjacency = mne.channels.find_ch_adjacency(info=info, ch_type=ch_type)
+
+    if picks:
+        channels_to_use = picks
+    else:
+        channels_to_use = info.ch_names
+
+    # Default ctf275 info has 275 channels, we are using 271. Check for extra channels
+    if bads:
+        extra_chs_idx = [i for i, ch in enumerate(ch_adjacency[1]) if ch not in channels_to_use or ch in bads]
+    else:
+        extra_chs_idx = [i for i, ch in enumerate(ch_adjacency[1]) if ch not in channels_to_use]
+
+    if len(extra_chs_idx):
+        ch_adjacency_mat = ch_adjacency[0].toarray()
+
+        # Remove extra channels
+        ch_adjacency_mat = np.delete(ch_adjacency_mat, extra_chs_idx, axis=0)
+        ch_adjacency_mat = np.delete(ch_adjacency_mat, extra_chs_idx, axis=1)
+
+        # Reformat to scipy sparce matrix
+        ch_adjacency_sparse = scipy.sparse.csr_matrix(ch_adjacency_mat)
+
+    else:
+        ch_adjacency_sparse = ch_adjacency[0]
+
+    return ch_adjacency_sparse
 
 
 def features_path_str(input_features):

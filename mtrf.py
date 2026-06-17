@@ -4,6 +4,7 @@ import load
 import setup
 import paths
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import plot_general
 
@@ -11,7 +12,7 @@ import plot_general
 exp_info = setup.exp_info()
 
 #----- Save data and display figures -----#
-use_saved_data = False
+use_saved_data = True
 save_data = True
 save_fig = True
 display_figs = True
@@ -21,11 +22,17 @@ if display_figs:
 else:
     plt.ioff()
 
+#----- Statistics (cluster-based permutations) -----#
+run_permutations = True
+pval_threshold = 0.05          # significance level for clusters
+t_thresh = dict(start=0, step=0.2)  # TFCE; or a float for a fixed t-threshold
+n_permutations = 1024
+
 #-----  Parameters -----#
 trial_params = {}
 
 meg_params = {'chs_id': 'mag_z',
-              'band_id': 'Theta',
+              'band_id': (0.1, 40),
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -48,13 +55,13 @@ trf_params = {
     'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
     # Per-feature duration: use dict with 'default' key and optional per-feature overrides
     # e.g. 'tmin': {'default': -0.2, 'left_but': -2}, 'tmax': {'default': 0.5, 'left_but': 2}
-    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2},
-    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'left_but': 2, 'right_but': 2},
+    'tmin': {'default': -0.2, 'Steering_std_der': -2, 'Gas_std_der': -2, 'Brake_std_der': -2, 'left_but': -2, 'right_but': -2},
+    'tmax': {'default': 0.5, 'Steering_std_der': 2, 'Gas_std_der': 2, 'Brake_std_der': 2, 'left_but': 2, 'right_but': 2},
     'plot_margin': 0.15,  # seconds to crop from each side of plotted TRF time series
 }
 
 time_topos = {
-        'fix': 0.7,# _X_ for intersection between features ['on_mirror', 'stimulus_present', 'on_mirror_X_stimulus_present']
+        'fix': 0.7,
         'sac': 1.2,
         'pur': None,
         'Steering_std_der': None,
@@ -123,14 +130,38 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
 grand_avg = functions_analysis.trf_grand_average(feature_evokeds=feature_evokeds, trf_params=trf_params, meg_params=meg_params,
                                                  display_figs=display_figs, save_fig=save_fig, fig_path=fig_path)
 
+
+# Reduce grand average to z-axis sensors so that the adjacency matrix, the
+# permutation data and the plotted grand average stay aligned.
+for feature in grand_avg.keys():
+    grand_avg[feature].pick(functions_general.pick_chs(chs_id='_z', info=grand_avg[feature].info))
+
+# Run permutations
+if run_permutations:
+    clusters_mask = {}
+    clusters_pvalues = {}
+
+    # Channels present in EVERY subject's evoked (intersection across all subjects and features)
+    channel_sets = [set(ev.ch_names) for ev_list in feature_evokeds.values() for ev in ev_list]
+    common = set.intersection(*channel_sets)
+    stat_chs = [ch for ch in grand_avg[list(grand_avg.keys())[0]].ch_names if ch in common]
+
+    ch_adjacency_sparse = functions_general.get_channel_adjacency(info=grand_avg[list(grand_avg.keys())[0]].info, ch_type='mag', picks=stat_chs)
+
+    for feature in grand_avg.keys():
+        print('Running permutations test for feature:', feature)
+        grand_avg[feature].pick(stat_chs)
+        data = np.array([ev.copy().pick(stat_chs).data.T for ev in feature_evokeds[feature]])
+        clusters_mask_transp, clusters_pvalues[feature] = functions_analysis.run_permutations_test(data=data, pval_threshold=pval_threshold, t_thresh=t_thresh, adj_matrix=ch_adjacency_sparse, n_permutations=n_permutations)
+        clusters_mask[feature] = clusters_mask_transp.T
+else:
+    clusters_mask = None
+
 joint_ylims = None
 # Plot features figure
 fname = f'GA_features_TFCE'
 
-for feature in grand_avg.keys():
-    grand_avg[feature].pick(functions_general.pick_chs(chs_id='_z', info=grand_avg[feature].info))
-
-
 fig = plot_general.plot_trf_features(grand_avg=grand_avg, joint_ylims=joint_ylims, time_topos=time_topos, top_topos=False,
+                                     clusters_mask=clusters_mask,
                                      plot_margin=trf_params.get('plot_margin', 0),
                                      save_fig=save_fig, fig_path=fig_path, fname=fname)

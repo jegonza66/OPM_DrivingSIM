@@ -644,6 +644,8 @@ def plot_trf_features(grand_avg,
     # If no permutations, plot everything
     if not clusters_mask:
         clusters_mask_plot = {key: np.ones_like(grand_avg[key].data, dtype=bool) for key in grand_avg.keys()}
+    else:
+        clusters_mask_plot = clusters_mask
 
     # Build per-feature xlim: derive from each feature's evoked times + margin
     feature_xlims = {}
@@ -748,8 +750,6 @@ def plot_trf_features(grand_avg,
             # Find the index corresponding to the maximum sum within the given time limits
             suggested_topo_idx = np.argmax(cluster_sums)
             time_plot = grand_avg[coeff].times[suggested_topo_idx]
-
-        print(coeff, time_plot)
 
         ax_frp.axvline(time_plot, ls="--", color="k", lw=1)
         ax_frp.axvline(0, ls="-", color="k", lw=.9)

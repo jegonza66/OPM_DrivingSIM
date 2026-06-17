@@ -49,6 +49,13 @@ if display_figs:
 else:
     plt.ioff()
 
+# --------- Statistics (cluster-based permutations across regions) ---------#
+run_permutations = True
+pval_threshold = 0.05               # significance level for clusters
+t_thresh = dict(start=0, step=0.2)  # TFCE; or a float for a fixed t-threshold
+n_permutations = 1024
+plot_significance = True             # masked GA brain plots of significant regions
+
 # --------- Parameters ---------#
 meg_params = {'chs_id': 'mag_z',
               'band_id': None,
@@ -68,8 +75,8 @@ pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing
 # TRF parameters
 trf_params = {
     'input_features': {
-        'fix': ['CF','DA', 'Audio'],
-        'sac': ['CF','DA', 'Audio'],
+        'fix': None,#['CF','DA', 'Audio'],
+        'sac': None,#['CF','DA', 'Audio'],
         # 'pur': ['CF','DA', 'Audio'],
         'audio_env_std': None,
         'Steering_std_der': None,
@@ -624,6 +631,176 @@ for feature in features:
 if save_data:
     save.var(var=grand_avg, path=save_path_trf, fname='GA_grand_avg.pkl')
     save.var(var=feature_evokeds, path=save_path_trf, fname='GA_all_subjects.pkl')
+
+# --------- Statistics: cluster-based permutation test per feature ---------#
+# One-sample (vs. zero) spatio-temporal cluster test on the TRF coefficients,
+# run independently for each feature. Spatial clustering uses the region
+# adjacency (anatomical borders for surface parcellations, geometric centroid
+# proximity for volume parcellations) so contiguous regions form clusters.
+if run_permutations:
+    import pandas as pd
+
+    print(f"\n{'='*60}")
+    print("Running cluster-based permutation statistics (per feature)...")
+    print(f"{'='*60}")
+
+    # Regions present in EVERY subject and feature, in grand-average channel order
+    channel_sets = [set(ev.ch_names) for ev_list in feature_evokeds.values() for ev in ev_list]
+    common = set.intersection(*channel_sets)
+    stat_regions = [ch for ch in grand_avg[features[0]].ch_names if ch in common]
+
+    # Region adjacency (computed once; identical region set for all features)
+    region_adjacency = functions_analysis.get_parcellation_adjacency(
+        ch_names=stat_regions, surf_vol=surf_vol, subject='fsaverage',
+        subjects_dir=subjects_dir, parc=parc,
+        label_positions=ga_label_positions if ga_label_positions else label_positions)
+
+    # For volume parcellations, pre-compute the fsaverage volume → GA-channel
+    # mapping once (feature-independent) so significance-masked volume brains can
+    # be rendered. Reuses the atlas variables built in the per-subject loop
+    # (atlas_data, inv_atlas_affine, mni305_to_mni152, vol_label_names_map).
+    vol_sig_ready = False
+    if plot_significance and surf_vol == 'vol_parcellation':
+        try:
+            import re
+            fname_src_fsavg_sig = (paths.sources_path + 'fsaverage'
+                                   + f'/fsaverage_volume_{spacing}_{int(pos)}-src.fif')
+            src_fsavg_sig = mne.read_source_spaces(fname_src_fsavg_sig)
+
+            fsavg_inuse_sig = src_fsavg_sig[0]['inuse'].astype(bool)
+            fsavg_rr_mm_sig = src_fsavg_sig[0]['rr'][fsavg_inuse_sig] * 1000
+            ras_mni_t_sig = read_ras_mni_t('fsaverage', subjects_dir)
+            fsavg_mni305_sig = apply_trans(ras_mni_t_sig, fsavg_rr_mm_sig)
+            fsavg_mni152_sig = apply_trans(mni305_to_mni152, fsavg_mni305_sig)
+            fsavg_vox_sig = apply_trans(inv_atlas_affine, fsavg_mni152_sig)
+            fsavg_vox_idx_sig = np.round(fsavg_vox_sig).astype(int)
+            for dim in range(3):
+                fsavg_vox_idx_sig[:, dim] = np.clip(fsavg_vox_idx_sig[:, dim], 0, atlas_data.shape[dim] - 1)
+            fsavg_parcel_ids_sig = atlas_data[fsavg_vox_idx_sig[:, 0], fsavg_vox_idx_sig[:, 1], fsavg_vox_idx_sig[:, 2]]
+
+            # parcel ID → GA channel index (via label name, suffixes stripped)
+            ga_ref_names = grand_avg[features[0]].info['ch_names']
+            ga_base_to_idx_sig = {}
+            for idx, ch_name in enumerate(ga_ref_names):
+                base_name = re.sub(r'-\d+$', '', ch_name)
+                if base_name not in ga_base_to_idx_sig:
+                    ga_base_to_idx_sig[base_name] = idx
+
+            parcel_to_ga_idx_sig = {}
+            if vol_label_names_map is not None:
+                for p_id, p_name in vol_label_names_map.items():
+                    if p_name in ga_base_to_idx_sig:
+                        parcel_to_ga_idx_sig[p_id] = ga_base_to_idx_sig[p_name]
+            else:
+                for p_id in np.unique(fsavg_parcel_ids_sig):
+                    p_name = f'parcel_{p_id}'
+                    if p_name in ga_base_to_idx_sig:
+                        parcel_to_ga_idx_sig[p_id] = ga_base_to_idx_sig[p_name]
+
+            full_vertno_ga_sig = src_fsavg_sig[0]['vertno']
+            vol_sig_ready = True
+        except Exception as e:
+            print(f'  Could not prepare volume significance mapping, skipping volume sig plots: {e}')
+
+    clusters_mask = {}
+    clusters_pvalues = {}
+    sig_rows = []
+
+    for feature in features:
+        print(f'  Permutation test for feature: {feature}')
+        # data shape: (subjects, times, regions)
+        data = np.array([ev.copy().pick(stat_regions).data.T for ev in feature_evokeds[feature]])
+        mask_tr, clusters_pvalues[feature] = functions_analysis.run_permutations_test(
+            data=data, pval_threshold=pval_threshold, t_thresh=t_thresh,
+            adj_matrix=region_adjacency, n_permutations=n_permutations)
+        mask_rt = mask_tr.T  # (regions, times)
+        clusters_mask[feature] = mask_rt
+
+        # Summarize significant regions and their significant time windows
+        times = grand_avg[feature].times
+        for r_idx, region in enumerate(stat_regions):
+            sig_times = times[mask_rt[r_idx]]
+            if sig_times.size:
+                sig_rows.append({'feature': feature, 'region': region,
+                                 'n_sig_times': int(sig_times.size),
+                                 't_start': float(sig_times.min()),
+                                 't_end': float(sig_times.max())})
+
+        # Significance-masked GA brain plot (surface and volume parcellations)
+        if plot_significance and mask_rt.any():
+
+            feat_initial_times = functions_analysis.get_feature_initial_time(feature, initial_time)
+
+            # Full-channel mask aligned to grand_avg[feature] channel order
+            ga_full = grand_avg[feature]
+            full_idx = {ch: i for i, ch in enumerate(ga_full.ch_names)}
+            full_mask = np.zeros(ga_full.data.shape, dtype=bool)
+            for r_idx, region in enumerate(stat_regions):
+                if region in full_idx:
+                    full_mask[full_idx[region]] = mask_rt[r_idx]
+            masked_full_data = ga_full.data * full_mask  # zero non-significant region/time
+
+            if surf_vol == 'parcellation':
+                ga_sig = ga_full.copy()
+                ga_sig.data = masked_full_data
+                stc_sig, src_sig = functions_analysis.evoked_to_parcellation_stc(
+                    ga_sig, parc, 'fsaverage', subjects_dir, spacing)
+                for it in feat_initial_times:
+                    it_suffix = f'_{it}s' if it is not None else ''
+                    plot_general.sources(
+                        stc=stc_sig, src=src_sig, subject='fsaverage',
+                        subjects_dir=subjects_dir, initial_time=it,
+                        surf_vol='surface', force_fsaverage=True,
+                        source_estimation='trf', views=['lateral', 'medial'],
+                        plot_margin=plot_margin,
+                        save_fig=save_fig, fig_path=fig_path,
+                        fname=f'{feature}_GA_source_trf_sig{it_suffix}')
+
+            elif surf_vol == 'vol_parcellation' and vol_sig_ready:
+                # Fill all fsaverage volume vertices with their parcel's masked GA value
+                full_data_ga_sig = np.zeros((len(full_vertno_ga_sig), masked_full_data.shape[1]))
+                for v_idx, p_id in enumerate(fsavg_parcel_ids_sig):
+                    if p_id in parcel_to_ga_idx_sig:
+                        full_data_ga_sig[v_idx] = masked_full_data[parcel_to_ga_idx_sig[p_id]]
+
+                stc_sig_vol = mne.VolSourceEstimate(
+                    data=full_data_ga_sig,
+                    vertices=[full_vertno_ga_sig],
+                    tmin=grand_avg[feature].times[0],
+                    tstep=1 / grand_avg[feature].info['sfreq'])
+
+                for it in feat_initial_times:
+                    it_suffix = f'_{it}s' if it is not None else ''
+                    plot_general.sources(
+                        stc=stc_sig_vol, src=src_fsavg_sig, subject='fsaverage',
+                        subjects_dir=subjects_dir, initial_time=it,
+                        surf_vol='volume', force_fsaverage=True,
+                        source_estimation='trf', views=['lateral', 'medial'],
+                        alpha=0.5, plot_margin=plot_margin,
+                        save_fig=save_fig, fig_path=fig_path,
+                        fname=f'{feature}_GA_source_trf_sig{it_suffix}')
+
+        elif plot_significance:
+            # No significant region/time survived the cluster test -> no _sig figure
+            print(f'  No significant clusters for feature "{feature}" '
+                  f'(p < {pval_threshold}); skipping significance figure.')
+
+    # Save cluster masks / p-values
+    if save_data:
+        save.var(var={'clusters_mask': clusters_mask,
+                      'clusters_pvalues': clusters_pvalues,
+                      'stat_regions': stat_regions,
+                      'pval_threshold': pval_threshold,
+                      't_thresh': t_thresh,
+                      'n_permutations': n_permutations},
+                 path=save_path_trf, fname='GA_stats_clusters.pkl')
+
+    # Save significant-regions summary CSV
+    os.makedirs(fig_path, exist_ok=True)
+    sig_df = pd.DataFrame(sig_rows, columns=['feature', 'region', 'n_sig_times', 't_start', 't_end'])
+    sig_df.to_csv(fig_path + 'significant_regions.csv', index=False)
+    print(f'  Saved significance summary ({len(sig_rows)} region hits): '
+          f'{fig_path}significant_regions.csv')
 
 print(f"\nSource parcellation TRF analysis completed!")
 print(f"Results saved to: {save_path_trf.split(paths.save_path)[-1]}")

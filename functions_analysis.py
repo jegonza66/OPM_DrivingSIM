@@ -11,7 +11,7 @@ import functions_general
 from mne.decoding import ReceptiveField
 from scipy import stats as stats
 import scipy.signal
-from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc
+from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc, permutation_cluster_1samp_test
 from mni_to_atlas import AtlasBrowser
 
 
@@ -1404,6 +1404,163 @@ def trf_grand_average(feature_evokeds, trf_params, meg_params, display_figs=Fals
 
     return grand_avg
 
+
+def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects_dir=None,
+                               parc='aparc.a2009s', label_positions=None,
+                               vol_n_neighbors=6, vol_dist_factor=1.5):
+    """Build a region-level adjacency matrix for cluster-based permutation stats
+    on parcellated (label) source data.
+
+    The cluster-permutation framework needs to know which regions are neighbors
+    so that spatially contiguous effects can be grouped into clusters.
+
+    - Surface parcellations ('parcellation'): adjacency is *anatomical*. Two
+      labels are neighbors if they share a border on the cortical surface, i.e.
+      an edge of the surface triangulation connects a vertex of one label to a
+      vertex of the other (computed per hemisphere; hemispheres are not linked).
+    - Volume parcellations ('vol_parcellation') or when surface info is missing:
+      adjacency is *geometric*. Regions are connected to nearby regions based on
+      the Euclidean distance between their centroids (a distance threshold plus a
+      k-nearest-neighbours floor so no region is left isolated).
+
+    Parameters
+    ----------
+    ch_names : list of str
+        Region/label names in the SAME order as the data channels.
+    surf_vol : str
+        'parcellation' (surface) or 'vol_parcellation' (volume).
+    subject : str
+        FreeSurfer subject used for surface adjacency (e.g. 'fsaverage').
+    subjects_dir : str
+        FreeSurfer subjects directory.
+    parc : str
+        Surface parcellation name (e.g. 'aparc', 'aparc.a2009s').
+    label_positions : dict or None
+        {region_name: np.array([x, y, z])} centroid positions. Required for
+        volume/geometric adjacency.
+    vol_n_neighbors : int
+        Minimum number of nearest neighbours each region connects to (volume).
+    vol_dist_factor : float
+        Distance threshold as a multiple of the median nearest-neighbour
+        distance (volume).
+
+    Returns
+    -------
+    adjacency : scipy.sparse.csr_matrix
+        (n_regions, n_regions) boolean adjacency including self-connections,
+        aligned to `ch_names`.
+    """
+    import scipy.sparse
+    from scipy.spatial import cKDTree
+
+    n = len(ch_names)
+    name_to_idx = {name: i for i, name in enumerate(ch_names)}
+    adjacency = scipy.sparse.lil_matrix((n, n), dtype=bool)
+    for i in range(n):
+        adjacency[i, i] = True
+
+    if surf_vol == 'parcellation':
+        if subjects_dir is None:
+            raise ValueError('subjects_dir is required for surface parcellation adjacency.')
+
+        print(f'Computing anatomical label adjacency ({parc}) on {subject}...')
+        labels = mne.read_labels_from_annot(subject, parc=parc, subjects_dir=subjects_dir, verbose=False)
+
+        for hemi in ('lh', 'rh'):
+            surf_file = os.path.join(subjects_dir, subject, 'surf', f'{hemi}.white')
+            rr, tris = mne.read_surface(surf_file)
+
+            # Map each surface vertex to a label index (within this hemisphere)
+            hemi_labels = [lab for lab in labels if lab.hemi == hemi]
+            vlabel = np.full(rr.shape[0], -1, dtype=int)
+            for li, label in enumerate(hemi_labels):
+                vlabel[label.vertices] = li
+
+            # All triangle edges -> label pairs that differ -> bordering labels
+            edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [0, 2]]], axis=0)
+            la = vlabel[edges[:, 0]]
+            lb = vlabel[edges[:, 1]]
+            valid = (la >= 0) & (lb >= 0) & (la != lb)
+            border_pairs = np.unique(np.sort(np.stack([la[valid], lb[valid]], axis=1), axis=1), axis=0)
+
+            for a_id, b_id in border_pairs:
+                na, nb = hemi_labels[a_id].name, hemi_labels[b_id].name
+                if na in name_to_idx and nb in name_to_idx:
+                    ia, ib = name_to_idx[na], name_to_idx[nb]
+                    adjacency[ia, ib] = True
+                    adjacency[ib, ia] = True
+
+    else:
+        # Geometric adjacency from centroid positions
+        if label_positions is None:
+            raise ValueError('label_positions is required for volume/geometric adjacency.')
+        missing = [name for name in ch_names if name not in label_positions]
+        if missing:
+            raise ValueError(f'label_positions is missing {len(missing)} region(s), '
+                             f'e.g. {missing[:3]}')
+
+        print(f'Computing geometric centroid adjacency for {n} regions...')
+        pos = np.array([label_positions[name] for name in ch_names])
+        tree = cKDTree(pos)
+
+        # Distance-threshold adjacency
+        nn_dist = tree.query(pos, k=min(2, n))[0]
+        nn_dist = nn_dist[:, -1] if nn_dist.ndim == 2 else nn_dist
+        thresh = np.median(nn_dist) * vol_dist_factor
+        for a, b in tree.query_pairs(r=thresh):
+            adjacency[a, b] = True
+            adjacency[b, a] = True
+
+        # k-nearest-neighbour floor so no region is isolated
+        k = min(vol_n_neighbors + 1, n)
+        knn_idx = tree.query(pos, k=k)[1]
+        knn_idx = np.atleast_2d(knn_idx)
+        for i in range(n):
+            for j in knn_idx[i, 1:]:
+                adjacency[i, int(j)] = True
+                adjacency[int(j), i] = True
+
+    adjacency = adjacency.tocsr()
+    n_edges = int((adjacency.sum() - n) / 2)
+    print(f'Region adjacency: {n} regions, {n_edges} neighbour links '
+          f'(mean degree {2 * n_edges / n:.1f})')
+    return adjacency
+
+
+def run_permutations_test(data, pval_threshold, t_thresh, adj_matrix=None, n_permutations=1024, seed=42):
+
+    # Clusters out type
+    if type(t_thresh) == dict:
+        out_type = 'indices'
+    else:
+        out_type = 'mask'
+
+    significant_pvalues = None
+
+    # Permutations cluster test (TFCE if t_thresh as dict)
+    t_tfce, clusters, p_tfce, H0 = permutation_cluster_1samp_test(X=data, threshold=t_thresh, n_permutations=n_permutations, adjacency=adj_matrix,
+                                                                  out_type=out_type, seed=seed, n_jobs=4)
+
+    # Make clusters mask
+    if type(t_thresh) == dict:
+        # If TFCE use p-vaues of voxels directly
+        p_tfce = p_tfce.reshape(data.shape[-2:])  # Reshape to data's shape
+        clusters_mask = p_tfce < pval_threshold
+
+    else:
+        # Get significant clusters
+        good_clusters_idx = np.where(p_tfce < pval_threshold)[0]
+        significant_clusters = [clusters[idx] for idx in good_clusters_idx]
+        significant_pvalues = [p_tfce[idx] for idx in good_clusters_idx]
+
+        # Reshape to data's shape by adding all clusters into one bool array
+        clusters_mask = np.zeros(data[0].shape)
+        if len(significant_clusters):
+            for significant_cluster in significant_clusters:
+                clusters_mask += significant_cluster
+        clusters_mask = clusters_mask.astype(bool)
+
+    return clusters_mask, significant_pvalues
 
 
 def evoked_to_parcellation_stc(evoked, parc, subject_code, subjects_dir, spacing):
