@@ -1112,22 +1112,29 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
         for a in alphas:
             rf_cv = ReceptiveField(tmin, tmax, sfreq, estimator=float(a), scoring='corrcoef', n_jobs=n_jobs)
             rf_cv.fit(model_input[:split], meg_data_array[:split])
-            score = np.mean(rf_cv.score(model_input[split:], meg_data_array[split:]))
+            # nanmean: a channel/target with no variance in the validation split
+            # yields a NaN corrcoef; ignore it instead of poisoning the average.
+            score = np.nanmean(rf_cv.score(model_input[split:], meg_data_array[split:]))
             scores.append(score)
             print(f'    alpha={a}: score={score:.6f}')
             del rf_cv
 
         # Pick largest alpha within 1% of the best score
-        scores = np.array(scores)
-        best_score = np.max(scores)
-        tolerance = 0.01 * abs(best_score)
-        # Among alphas with score >= best_score - tolerance, pick the largest
-        within_tol = alphas[scores >= best_score - tolerance]
-        best_alpha = float(np.max(within_tol))
+        scores = np.array(scores, dtype=float)
+        finite = np.isfinite(scores)
+        if not np.any(finite):
+            # All scores are NaN (e.g. degenerate validation split): fall back to
+            # the median candidate alpha instead of crashing.
+            best_alpha = float(np.median(alphas))
+            print(f'  WARNING: all CV scores are NaN; falling back to median alpha {best_alpha}')
+        else:
+            best_score = np.nanmax(scores)
+            tolerance = 0.01 * abs(best_score)
+            # Among alphas with a finite score >= best_score - tolerance, pick the largest
+            within_tol = alphas[finite & (scores >= best_score - tolerance)]
+            best_alpha = float(np.max(within_tol))
+            print(f'  Best alpha: {best_alpha} (best_score={best_score:.6f}, tol={tolerance:.6f})')
 
-        print(f'  Best alpha: {best_alpha} (best_score={best_score:.6f}, tol={tolerance:.6f})')
-
-        print(f'  Best alpha: {best_alpha} (score={best_score:.4f})')
         estimator = best_alpha
     else:
         estimator = alpha
