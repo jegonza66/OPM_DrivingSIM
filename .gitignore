@@ -1,2 +1,6 @@
 __pycache__/
 .idea/
+
+# Local (untracked) DyNeMo run parameters; overrides dynemo/dynemo_config.py
+dynemo_config_local.py
+

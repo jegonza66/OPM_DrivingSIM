@@ -23,10 +23,7 @@ import mne
 
 
 # Setup
-n_modes = 6
-n_pca = 80
-n_embeddings = 15
-sequence_length = 100
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length
 force_retrain_model = True
 exp_info = setup.exp_info()
 

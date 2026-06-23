@@ -62,9 +62,8 @@ n_permutations = 1024
 error_band = 'sem'
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
-N_MODES = 6
-N_EMBEDDINGS = 15
-SEQUENCE_LENGTH = 100
+from dynemo_config import (n_modes as N_MODES, n_embeddings as N_EMBEDDINGS,
+                           sequence_length as SEQUENCE_LENGTH)
 
 # ------------------------------------------------------------------
 # Events to analyse

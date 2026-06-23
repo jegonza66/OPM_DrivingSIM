@@ -22,9 +22,7 @@ import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 
 # Setup
-n_modes = 6
-n_embeddings = 15
-sequence_length = 100
+from dynemo_config import n_modes, n_embeddings, sequence_length
 
 # Paths:
 dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data")

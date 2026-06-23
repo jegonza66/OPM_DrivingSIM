@@ -22,9 +22,7 @@ import pickle
 exp_info = setup.exp_info()
 
 # Run parameters (must match the trained model in dynemo_II / dynemo_III)
-n_modes = 6
-n_embeddings = 15
-sequence_length = 100
+from dynemo_config import n_modes, n_embeddings, sequence_length
 
 # Paths:
 spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Spectra")
