@@ -9,6 +9,7 @@ import load
 import save
 import functions_general
 from mne.decoding import ReceptiveField
+from sklearn.model_selection import KFold
 from scipy import stats as stats
 import scipy.signal
 from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc, permutation_cluster_1samp_test
@@ -1071,7 +1072,28 @@ def save_alpha_report(rf_results, subject_id, save_path, is_multi_region=False):
     print(f'Alpha report saved to {report_path}')
 
 
-def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_power=False, alpha=0, n_jobs=4):
+def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_power=False, alpha=0,
+             n_splits=5, cv_aggregate='mean_fisher', n_jobs=4):
+    """Fit an mTRF/encoding model, cross-validating the ridge parameter (alpha).
+
+    Parameters
+    ----------
+    alpha : float | array-like
+        If a single float, used directly as the ridge estimator. If a list/array of
+        candidate values, the best alpha is selected by k-fold cross-validation.
+    n_splits : int
+        Number of cross-validation folds used to select alpha (contiguous temporal
+        blocks, no shuffling, to respect the time-series structure). Default 5.
+    cv_aggregate : {'mean_fisher', 'mean', 'pool'}
+        How the per-fold validation correlations are aggregated into a single score
+        per alpha:
+        - 'mean_fisher' : Fisher z-transform each fold's mean correlation, average,
+          then inverse-transform (recommended; robust to non-stationarity, reduces
+          the bias of averaging correlations). Default.
+        - 'mean'        : plain average of the per-fold mean correlations.
+        - 'pool'        : concatenate the held-out predictions/targets across folds
+          and compute a single correlation over the whole dataset.
+    """
 
     if chs_id != 'misc':
         # Get subset channels data as array
@@ -1104,27 +1126,71 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
     if isinstance(alpha, (list, tuple, np.ndarray)):
         alphas = np.array(alpha, dtype=float)
         n_times = meg_data_array.shape[0]
-        split = int(n_times * 0.8)
 
-        # Evaluate all alpha candidates
-        alphas = np.array(alpha, dtype=float)
+        # Contiguous temporal folds (no shuffle) to respect the time-series structure
+        n_folds = int(min(n_splits, n_times))
+        n_folds = max(n_folds, 2)
+        kf = KFold(n_splits=n_folds, shuffle=False)
+
+        def _columnwise_corr(a, b):
+            """Pearson correlation per column (channel/target) of (n_times, n_chs)."""
+            a = a - a.mean(axis=0, keepdims=True)
+            b = b - b.mean(axis=0, keepdims=True)
+            num = np.sum(a * b, axis=0)
+            den = np.sqrt(np.sum(a ** 2, axis=0) * np.sum(b ** 2, axis=0))
+            with np.errstate(invalid='ignore', divide='ignore'):
+                r = num / den
+            return r
+
+        # Evaluate all alpha candidates by k-fold CV
         scores = []
         for a in alphas:
-            rf_cv = ReceptiveField(tmin, tmax, sfreq, estimator=float(a), scoring='corrcoef', n_jobs=n_jobs)
-            rf_cv.fit(model_input[:split], meg_data_array[:split])
-            # nanmean: a channel/target with no variance in the validation split
-            # yields a NaN corrcoef; ignore it instead of poisoning the average.
-            score = np.nanmean(rf_cv.score(model_input[split:], meg_data_array[split:]))
+            fold_scores = []          # used by 'mean' / 'mean_fisher'
+            pooled_pred, pooled_true = [], []   # used by 'pool'
+            for train_idx, test_idx in kf.split(model_input):
+                rf_cv = ReceptiveField(tmin, tmax, sfreq, estimator=float(a),
+                                       scoring='corrcoef', n_jobs=n_jobs)
+                rf_cv.fit(model_input[train_idx], meg_data_array[train_idx])
+
+                if cv_aggregate == 'pool':
+                    # Collect valid (edge-trimmed) predictions/targets to pool later
+                    y_pred = rf_cv.predict(model_input[test_idx])
+                    mask = rf_cv.valid_samples_
+                    pooled_pred.append(np.atleast_2d(y_pred[mask]))
+                    pooled_true.append(np.atleast_2d(meg_data_array[test_idx][mask]))
+                else:
+                    # nanmean across channels: a target with no variance in this fold
+                    # yields a NaN corrcoef; ignore it instead of poisoning the mean.
+                    fold_score = np.nanmean(rf_cv.score(model_input[test_idx],
+                                                        meg_data_array[test_idx]))
+                    fold_scores.append(fold_score)
+                del rf_cv
+
+            if cv_aggregate == 'pool':
+                pred = np.concatenate(pooled_pred, axis=0)
+                true = np.concatenate(pooled_true, axis=0)
+                score = np.nanmean(_columnwise_corr(true, pred))
+            elif cv_aggregate == 'mean_fisher':
+                fs = np.array(fold_scores, dtype=float)
+                fs = fs[np.isfinite(fs)]
+                if fs.size == 0:
+                    score = np.nan
+                else:
+                    # Fisher z-average (clip to avoid +/-inf at |r|==1)
+                    z = np.arctanh(np.clip(fs, -0.999999, 0.999999))
+                    score = float(np.tanh(np.mean(z)))
+            else:  # 'mean'
+                score = float(np.nanmean(fold_scores))
+
             scores.append(score)
             print(f'    alpha={a}: score={score:.6f}')
-            del rf_cv
 
         # Pick largest alpha within 1% of the best score
         scores = np.array(scores, dtype=float)
         finite = np.isfinite(scores)
         if not np.any(finite):
-            # All scores are NaN (e.g. degenerate validation split): fall back to
-            # the median candidate alpha instead of crashing.
+            # All scores are NaN (e.g. degenerate folds): fall back to the median
+            # candidate alpha instead of crashing.
             best_alpha = float(np.median(alphas))
             print(f'  WARNING: all CV scores are NaN; falling back to median alpha {best_alpha}')
         else:
@@ -1133,7 +1199,9 @@ def fit_mtrf(meg_data, tmin, tmax, model_input, chs_id, standarize=True, fit_pow
             # Among alphas with a finite score >= best_score - tolerance, pick the largest
             within_tol = alphas[finite & (scores >= best_score - tolerance)]
             best_alpha = float(np.max(within_tol))
-            print(f'  Best alpha: {best_alpha} (best_score={best_score:.6f}, tol={tolerance:.6f})')
+            print(f'  Best alpha: {best_alpha} '
+                  f'(best_score={best_score:.6f}, tol={tolerance:.6f}, '
+                  f'{n_folds}-fold {cv_aggregate})')
 
         estimator = best_alpha
     else:
@@ -1168,6 +1236,10 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
 
     if not alpha:
         alpha = trf_params['alpha']
+
+    # Cross-validation settings for alpha selection (with sensible defaults)
+    n_splits = trf_params.get('cv_n_splits', 5)
+    cv_aggregate = trf_params.get('cv_aggregate', 'mean_fisher')
 
     print(f"Computing TRF for {trf_params['input_features']}")
 
@@ -1211,7 +1283,8 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
                 print(f'Fitting mTRF for region {chs_subset} (tmin={group_tmin}, tmax={group_tmax})')
                 group_rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
                                                 fit_power=trf_params['fit_power'], model_input=group_input,
-                                                chs_id=chs_subset, standarize=trf_params['standarize'], n_jobs=4)
+                                                chs_id=chs_subset, standarize=trf_params['standarize'],
+                                                n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
                 region_alpha = extract_best_alpha(group_rf[chs_subset])
                 if region_alpha is not None:
                     best_alpha[chs_subset] = region_alpha
@@ -1220,7 +1293,8 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
         else:
             group_rf = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
                                 fit_power=trf_params['fit_power'], model_input=group_input,
-                                chs_id=meg_params['chs_id'], standarize=trf_params['standarize'], n_jobs=4)
+                                chs_id=meg_params['chs_id'], standarize=trf_params['standarize'],
+                                n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
             best_alpha = extract_best_alpha(group_rf)
             if best_alpha is not None:
                 print(f'  Best alpha: {best_alpha}')

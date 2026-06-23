@@ -88,6 +88,11 @@ trf_params = {
     'standarize': True,
     'fit_power': False,
     'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
+    # Alpha cross-validation: k-fold over contiguous temporal blocks.
+    # cv_aggregate: 'mean_fisher' (default, Fisher-z averaged per-fold correlation),
+    #               'mean' (plain average), or 'pool' (one correlation over pooled preds)
+    'cv_n_splits': 5,
+    'cv_aggregate': 'mean_fisher',
     # Per-feature duration: use dict with 'default' key and optional per-feature overrides
     # e.g. 'tmin': {'default': -0.2, 'left_but': -2}, 'tmax': {'default': 0.5, 'left_but': 2}
     'tmin': {'default': -0.2, 'Steering_std_der': -2, 'left_but': -2, 'right_but': -2, 'Gas_std_der': -2, 'Brake_std_der': -2},
@@ -355,6 +360,8 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
                 meg_data=raw_src, tmin=group_tmin, tmax=group_tmax,
                 alpha=alpha,
                 model_input=group_input, chs_id='misc',
+                n_splits=trf_params.get('cv_n_splits', 5),
+                cv_aggregate=trf_params.get('cv_aggregate', 'mean_fisher'),
                 standarize=trf_params['standarize'], fit_power=trf_params['fit_power'])
             best_alpha = functions_analysis.extract_best_alpha(group_rf)
             if best_alpha is not None:
