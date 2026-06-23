@@ -23,12 +23,17 @@ import mne
 
 
 # Setup
+n_modes = 6
+n_pca = 80
+n_embeddings = 15
+sequence_length = 100
 force_retrain_model = True
 exp_info = setup.exp_info()
 
 # Paths:
-dynemo_object_data_path = paths.dynemo_object_data_path
-dynemo_trained_data_path = paths.dynemo_trained_data_path
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Trained_Model")
+dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Training")
 os.makedirs(dynemo_object_data_path, exist_ok=True)
 os.makedirs(dynemo_trained_data_path, exist_ok=True)
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
@@ -89,7 +94,7 @@ cprint(f"   >>>     Raw data guardada en: {raw_data_file} ")
 cprint("   >>>     Preparando los datos con osl_dynamics.data.Data ... ")
 data = Data(raw_sessions_data)
 methods = {
-    "tde_pca": {"n_embeddings": 15, "n_pca_components": 80},
+    "tde_pca": {"n_embeddings": n_embeddings, "n_pca_components": n_pca},
     "standardize": {},
 }
 data.prepare(methods)
@@ -115,13 +120,13 @@ cprint("   >>>     Configurando parámetros de DyNeMo ... ")
 cprint("   >>>     To get more info about parameters you can access:  ")
 cprint("           https://osl-dynamics.readthedocs.io/en/latest/tutorials_build/3-3_dynemo_training.html ")
 config = Config(
-    n_modes=8,
-    n_channels=80, # 30
-    sequence_length=100, # 200
+    n_modes=n_modes,
+    n_channels=n_pca, # 30
+    sequence_length=sequence_length,
 
-    inference_n_units=64, # 128
+    inference_n_units=128,
     inference_normalization="layer",
-    model_n_units=64, # 128
+    model_n_units=128,
     model_normalization="layer",
 
     learn_alpha_temperature=True,
@@ -136,8 +141,8 @@ config = Config(
     n_kl_annealing_epochs=20,
 
     batch_size=128,
-    learning_rate=0.003, # 0.002
-    n_epochs=40, # 80
+    learning_rate=0.002,
+    n_epochs=80,
 )
 cprint("   >>>     Parámetros de DyNeMo configurados: ")
 print(config)
@@ -195,6 +200,6 @@ plt.plot(history["loss"])
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.title("Training loss")
-os.makedirs(paths.dynemo_plots_training_path, exist_ok=True)
-plt.savefig(os.path.join(paths.dynemo_plots_training_path, "training_loss.png"))
+os.makedirs(dynemo_plots_training_path, exist_ok=True)
+plt.savefig(os.path.join(dynemo_plots_training_path, "training_loss.png"))
 plt.show()

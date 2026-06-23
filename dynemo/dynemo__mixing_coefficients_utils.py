@@ -48,13 +48,18 @@ _CONTINUOUS_KEYS = ("Steering", "Gas", "Brake", "audio_env")
 # ------------------------------------------------------------------
 # Alpha loading
 # ------------------------------------------------------------------
-def load_alpha(use_reweighted=True):
+def load_alpha(use_reweighted=True, infered_parameters_path=None):
     """Load the per-subject mixing coefficients.
 
     Returns a list of (n_time, n_modes) arrays.
+
+    `infered_parameters_path` selects the (per-run) folder that holds the
+    alp*.pkl files. When None it falls back to the legacy shared location.
     """
+    if infered_parameters_path is None:
+        infered_parameters_path = paths.dynemo_infered_parameters_path
     fname = "alp_reweighted.pkl" if use_reweighted else "alp.pkl"
-    alp_path = os.path.join(paths.dynemo_infered_parameters_path, fname)
+    alp_path = os.path.join(infered_parameters_path, fname)
     cprint(f">>> Cargando alphas desde {alp_path}")
     with open(alp_path, "rb") as f:
         alp = pickle.load(f)
@@ -99,6 +104,7 @@ def build_mode_raw(subject_code, alpha_i, n_embeddings=15, sequence_length=100,
 
     # Samples DyNeMo trimmed at the start (regression-spectra trimming)
     trim_start = get_subject_trim_start(subject_code=subject_code,
+                                        n_modes=alpha_i.shape[1],
                                         n_embeddings=n_embeddings,
                                         sequence_length=sequence_length)
 

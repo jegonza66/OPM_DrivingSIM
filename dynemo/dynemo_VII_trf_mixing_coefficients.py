@@ -60,6 +60,7 @@ else:
 use_reweighted_alpha = True   # True: normalised/reweighted alpha, False: raw alpha
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
+N_MODES = 6
 N_EMBEDDINGS = 15
 SEQUENCE_LENGTH = 100
 
@@ -81,28 +82,32 @@ trf_params = {
     'input_features': {
         'fix': None,
         'sac': None,
+        'audio_env_std': None,
         'left_but': None,
         'right_but': None,
         'Steering_std_der': None,
-        'audio_env_std': None,
         'Gas_std_der': None,
         'Brake_std_der': None
     },
     'standarize': True,
     'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],   # ridge; list -> CV
     # Per-feature windows (seconds). dict with 'default' + per-feature overrides.
-    'tmin': {'default': -2, 'fix': -0.2, 'sac': -0.2},
-    'tmax': {'default': 2, 'fix': 0.5, 'sac': 0.5},
+    'tmin': {'default': -2, 'fix': -1, 'sac': -1, 'audio_env_std': -0.2},
+    'tmax': {'default': 2, 'fix': 1, 'sac': 1, 'audio_env_std': 0.5},
     'plot_margin': 0.05,   # seconds cropped from each side when plotting
     'fit_power': False,    # mode time courses are amplitudes already
 }
 
 #----- Paths -----#
+infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, "DyNeMo_Infered_Parameters")
 alpha_tag = 'reweighted' if use_reweighted_alpha else 'raw'
 features_str = '_'.join(trf_params['input_features'].keys())
 run_str = f"alpha_{alpha_tag}/{features_str}/"
-fig_path = os.path.join(paths.dynemo_plots_mixing_trf_path, run_str)
-save_path = os.path.join(paths.dynemo_mixing_trf_path, run_str)
+# Layout: DyNeMo / emb<..>_seq<..> / Mixing_TRF / alpha_<..> / <features>
+fig_path = paths.dynemo_run_plots_path(
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("Mixing_TRF", run_str))
+save_path = paths.dynemo_run_save_path(
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("DyNeMo_Mixing_TRF", run_str))
 os.makedirs(fig_path, exist_ok=True)
 os.makedirs(save_path, exist_ok=True)
 
@@ -179,7 +184,8 @@ def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
 # ============================================================
 # COMPUTE TRF PER SUBJECT
 # ============================================================
-alp = mc.load_alpha(use_reweighted=use_reweighted_alpha)
+alp = mc.load_alpha(use_reweighted=use_reweighted_alpha,
+                    infered_parameters_path=infered_parameters_path)
 
 features = functions_analysis.expand_features(trf_params['input_features'])
 feature_evokeds = {feature: [] for feature in features}
@@ -281,6 +287,24 @@ for feature in features:
                    title=f"Grand average - {feature} (N={len(feature_evokeds[feature])})",
                    sig_masks=sig_masks, subject_data=subject_data, band=error_band,
                    save_fig=save_fig, fig_path=fig_path, fname=f"GA_{feature}")
+
+    # Persist the TRF results so they can be reloaded without recomputing.
+    if save_fig:  # reuse the same "write outputs" switch used for figures
+        # Grand-average TRF as an MNE Evoked (-ave.fif)
+        grand_avg.save(os.path.join(save_path, f"GA_{feature}-ave.fif"),
+                       overwrite=True)
+        # Per-subject curves, time axis and significance mask as arrays
+        sig_array = None
+        if sig_masks is not None:
+            sig_array = np.array([sig_masks[m] for m in range(n_modes)])  # (n_modes, n_times)
+        np.savez(
+            os.path.join(save_path, f"{feature}_trf.npz"),
+            subject_data=subject_data,        # (n_subjects, n_modes, n_times)
+            times=grand_avg.times,
+            grand_avg=grand_avg.data,         # (n_modes, n_times)
+            sig_masks=sig_array if sig_array is not None else np.array([]),
+        )
+        cprint(f">>> Resultados TRF de '{feature}' guardados en {save_path}")
 
 cprint(">>> TRF de coeficientes de mezcla terminado.")
 

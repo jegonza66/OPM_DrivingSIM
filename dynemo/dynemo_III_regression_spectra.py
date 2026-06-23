@@ -21,20 +21,22 @@ from osl_dynamics.analysis import spectral
 import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 
+# Setup
+n_modes = 6
+n_embeddings = 15
+sequence_length = 100
 
 # Paths:
-dynemo_object_data_path = paths.dynemo_object_data_path
-dynemo_trained_data_path = paths.dynemo_trained_data_path
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Trained_Model")
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
-dynemo_infered_parameters_path = paths.dynemo_infered_parameters_path
-spectra_data_path = paths.dynemo_spectra_path
+dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Infered_Parameters")
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Spectra")
 raw_data_file = os.path.join(dynemo_object_data_path, "raw_data.pkl")
 os.makedirs(dynemo_infered_parameters_path, exist_ok=True)
 os.makedirs(spectra_data_path, exist_ok=True)
 
-
 exp_info = setup.exp_info()
-
 
 
 #-----------------------------LOADING DATA-----------------------------#
@@ -64,9 +66,8 @@ cprint("       Getting Infered Parameters  ")
 cprint(" ---------------------------------------------- \n  ")
 
 # Trim data
-trimmed_data = data.trim_time_series(n_embeddings=15, sequence_length=100)
+trimmed_data = data.trim_time_series(n_embeddings=n_embeddings, sequence_length=sequence_length)
 alpha = model.get_alpha(prepared_data)
-
 
 # Checking alphas
 for a, x in zip(alpha, trimmed_data):
@@ -84,9 +85,7 @@ cprint(f"   >>>     Guardando los alpha en {dynemo_infered_parameters_path}  ")
 os.makedirs(dynemo_infered_parameters_path, exist_ok=True)
 pickle.dump(alpha, open(os.path.join(dynemo_infered_parameters_path, "alp.pkl"), "wb"))
 
-
-
-# Get inferred state/mode means and covariances 
+# Get inferred state/mode means and covariances
 cprint("   >>>     Obteniendo means y covariances ")
 means, covs = model.get_means_covariances()
 
@@ -95,15 +94,9 @@ cprint(f"   >>>     Guardando means y covariances en {dynemo_infered_parameters_
 np.save(os.path.join(dynemo_infered_parameters_path, "means.npy"), means)
 np.save(os.path.join(dynemo_infered_parameters_path, "covs.npy"), covs)
 
-
-
 # Reweight the mixing coefficients.
 alpha = modes.reweight_alphas(alpha, covs)
 pickle.dump(alpha, open(os.path.join(dynemo_infered_parameters_path, "alp_reweighted.pkl"), "wb"))
-
-
-
-# Calculate regression spectra for each mode and subject (will take a few minutes)
 
 # Calculate regression spectra for each mode and subject (will take a few minutes)
 f, psd, coh, w = spectral.regression_spectra(

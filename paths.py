@@ -90,3 +90,29 @@ dynemo_plots_training_path = os.path.join(dynemo_plots_path, "Training")
 dynemo_plots_temporal_analysis_path = os.path.join(dynemo_plots_path, "Temporal_Analysis")
 dynemo_plots_preprocessing_path = os.path.join(dynemo_plots_path, "Preprocessing")
 dynemo_plots_mixing_trf_path = os.path.join(dynemo_plots_path, "Mixing_TRF")
+
+
+# ----------------------------------------------------------------------------
+# DyNeMo per-run paths
+# ----------------------------------------------------------------------------
+# A DyNeMo "run" is identified by the key parameters that change the prepared
+# data and the trained model (number of time-delay embeddings and the model
+# sequence length). Tagging the output folders with these parameters keeps the
+# plots and saved results of different runs side by side instead of
+# overwriting each other (e.g. "emb15_seq200").
+def dynemo_run_tag(n_modes, n_embeddings, sequence_length):
+    """Folder name identifying a DyNeMo run by its key parameters."""
+    return f"modes{n_modes}_emb{n_embeddings}_seq{sequence_length}"
+
+
+def dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, subdir=None):
+    """Per-run plots folder, e.g. Plots/DyNeMo/emb15_seq200[/<subdir>]."""
+    base = os.path.join(dynemo_plots_path, dynemo_run_tag(n_modes, n_embeddings, sequence_length))
+    return base if subdir is None else os.path.join(base, subdir)
+
+
+def dynemo_run_save_path(n_modes, n_embeddings, sequence_length, subdir=None):
+    """Per-run Save folder, e.g. Save/DyNeMo/emb15_seq200[/<subdir>]."""
+    base = os.path.join(dynemo_path, dynemo_run_tag(n_modes, n_embeddings, sequence_length))
+    return base if subdir is None else os.path.join(base, subdir)
+

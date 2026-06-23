@@ -25,16 +25,21 @@ from osl_dynamics import files
 # Setup
 exp_info = setup.exp_info()
 
+# Run parameters (must match the trained model in dynemo_II / dynemo_III)
+n_modes = 6
+n_embeddings = 15
+sequence_length = 100
+
 # Paths:
 dynemo_prepared_data_path = paths.dynemo_prepared_data_path
-dynemo_object_data_path = paths.dynemo_object_data_path
-dynemo_trained_data_path = paths.dynemo_trained_data_path
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Trained_Model")
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
-spectra_data_path = paths.dynemo_spectra_path
-dynemo_plots_PSD_path = paths.dynemo_plots_PSD_path
-dynemo_plots_power_map_path = paths.dynemo_plots_power_map_path
-dynemo_plots_coherence_networks_path = paths.dynemo_plots_coherence_networks_path
-dynemo_plots_coherence_maps_path = paths.dynemo_plots_coherence_maps_path
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Spectra")
+dynemo_plots_PSD_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "PSD")
+dynemo_plots_power_map_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Power_Maps")
+dynemo_plots_coherence_networks_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Coherence_Networks")
+dynemo_plots_coherence_maps_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Coherence_Maps")
 subjects_dir = os.path.join(paths.mri_path, 'freesurfer')
 os.environ["SUBJECTS_DIR"] = subjects_dir
 
@@ -160,95 +165,26 @@ for i in range(n_modes):
         f"   >>>     PSD coeficientes Mode {i+1} guardado en {out_file}"
     )
 
-
-############### PSD without dominant mode ###############
-
-exclude_modes = [1]  # mode 2 en índice Python
-
-keep_modes = [
-    i for i in range(n_modes)
-    if i not in exclude_modes
-]
-
-fig, ax = plt.subplots(figsize=(8,5))
-
-for i in keep_modes:
-
-    ax.plot(
-        f,
-        psd_coefs_mean[i],
-        label=f"Mode {i+1}",
-        color=mode_colors[i],
-        linewidth=2
-    )
-
-ax.set_xlabel("Frequency (Hz)")
-ax.set_ylabel("PSD coefficient (a.u.)")
-
-ax.set_xlim([f[0], f[-1]])
-
-ax.legend()
-
-fig.savefig(
-    os.path.join(
-        dynemo_plots_PSD_path,
-        "group_mean_PSD_coefficients_without_mode2.png",
-    )
-)
-
-cprint(
-    f"   >>>     PSD coeficientes sin Mode 2 guardado en "
-    f"{os.path.join(dynemo_plots_PSD_path, 'group_mean_PSD_coefficients_without_mode2.png')}"
-)
-
-
-############### PSD without mode 1 ###############
-
-exclude_modes = [0]  # mode 1 en índice Python
-
-keep_modes = [
-    i for i in range(n_modes)
-    if i not in exclude_modes
-]
-
-fig, ax = plt.subplots(figsize=(8,5))
-
-for i in keep_modes:
-
-    ax.plot(
-        f,
-        psd_coefs_mean[i],
-        label=f"Mode {i+1}",
-        color=mode_colors[i],
-        linewidth=2
-    )
-
-ax.set_xlabel("Frequency (Hz)")
-ax.set_ylabel("PSD coefficient (a.u.)")
-
-ax.set_xlim([f[0], f[-1]])
-
-ax.legend()
-
-fig.savefig(
-    os.path.join(
-        dynemo_plots_PSD_path,
-        "group_mean_PSD_coefficients_without_mode1.png",
-    )
-)
-
-cprint(
-    f"   >>>     PSD coeficientes sin Mode 1 guardado en "
-    f"{os.path.join(dynemo_plots_PSD_path, 'group_mean_PSD_coefficients_without_mode1.png')}"
-)
-
-
-
 # Layout y títulos para las figuras combinadas (todos los modos juntos)
 combined_n_rows = 2 if n_modes > 4 else 1
 mode_titles = [f"Mode {i+1}" for i in range(n_modes)]
 mask_file = os.path.join(paths.atlas_path, "MNI152_T1_8mm_brain.nii.gz")
 parcellation_file = os.path.join(paths.atlas_path, "fmri_d100_parcellation_with_PCC_reduced_2mm_ss5mm_ds8mm.nii.gz")
+
+
+def _rename_mode_files(directory, base_name, n_modes, ext=".png"):
+    """Rename osl-dynamics per-mode images so the filename shows the mode number.
+
+    osl-dynamics names individual images with a 0-based index, e.g.
+    ``power_map0.png`` ... ``power_map7.png`` (zero-padded to len(str(n_modes))).
+    This renames them to ``power_map_mode1.png`` ... ``power_map_mode8.png``.
+    """
+    w = len(str(n_modes))
+    for i in range(n_modes):
+        src = os.path.join(directory, f"{base_name}{i:0{w}d}{ext}")
+        dst = os.path.join(directory, f"{base_name}_mode{i + 1}{ext}")
+        if os.path.exists(src):
+            os.replace(src, dst)
 
 
 # 2. Plotear Power Maps
@@ -265,7 +201,10 @@ power.save(
     parcellation_file=parcellation_file,
     subtract_mean=True,
     filename=power_map_path,
+    titles=mode_titles,
 )
+# Rename power_map{i}.png -> power_map_mode{i+1}.png
+_rename_mode_files(dynemo_plots_power_map_path, "power_map", n_modes)
 cprint(f"   >>>     Power maps individuales guardados en {dynemo_plots_power_map_path}  \n  ")
 
 # 2b. Figura combinada: todos los modos con escala compartida
@@ -286,7 +225,6 @@ power.save(
 cprint(f"   >>>     Power map combinado (escala compartida) guardado en {power_map_combined_path}  \n  ")
 
 
-
 # 3. Visualizamos las coherence networks
 cprint(f"   >>>     Deberia dar {coh.shape} = (subjects, modes, channels, channels, frequencies)  \n  ")
 # Calcular la mean coherence en todas las frecuencias.
@@ -299,13 +237,21 @@ thres_mean_c = connectivity.threshold(mean_c, percentile=97, subtract_mean=True)
 cprint(f"   >>>     Visualizando las redes  \n  ")
 
 # 3a. Redes individuales: cada modo con su propia escala de enlaces
-coh_net_path = os.path.join(dynemo_plots_coherence_networks_path, "coherence_networks.png")
-connectivity.save(
-    thres_mean_c,
-    parcellation_file=parcellation_file,
-    plot_kwargs={"edge_cmap": "Reds"},
-    filename=coh_net_path,
-)
+# connectivity.save no titula los plots individuales, así que guardamos cada
+# modo por separado pasando el título a nilearn.plot_connectome y nombrando el
+# archivo por número de modo.
+for i in range(n_modes):
+    connectivity.save(
+        thres_mean_c[i:i + 1],
+        parcellation_file=parcellation_file,
+        plot_kwargs={"edge_cmap": "Reds", "title": f"Mode {i + 1}"},
+        filename=os.path.join(dynemo_plots_coherence_networks_path, "coherence_networks.png"),
+    )
+    # A single-mode save always writes 'coherence_networks0.png'; rename it.
+    os.replace(
+        os.path.join(dynemo_plots_coherence_networks_path, "coherence_networks0.png"),
+        os.path.join(dynemo_plots_coherence_networks_path, f"coherence_networks_mode{i + 1}.png"),
+    )
 cprint(f"   >>>     Redes coherence individuales guardadas en {dynemo_plots_coherence_networks_path}\n  ")
 
 # 3b. Figura combinada: todos los modos con escala de enlaces compartida
@@ -335,7 +281,10 @@ power.save(
     parcellation_file=parcellation_file,
     subtract_mean=True,
     filename=coh_map_path,
+    titles=mode_titles,
 )
+# Rename coherence_maps{i}.png -> coherence_maps_mode{i+1}.png
+_rename_mode_files(dynemo_plots_coherence_maps_path, "coherence_maps", n_modes)
 cprint(f"   >>>     Coherence maps individuales guardados en {dynemo_plots_coherence_maps_path}\n  ")
 
 # 4b. Figura combinada: todos los modos con escala compartida

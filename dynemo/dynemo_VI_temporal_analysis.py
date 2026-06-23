@@ -48,9 +48,7 @@ import dynemo__mixing_coefficients_utils as mc
 ################ SETUP ################
 use_reweighted_alpha = True
 
-FS_ALPHA = 250            # DyNeMo data sampling rate (Hz)
-SMOOTH_WINDOW = 6         # samples (~24 ms) used to smooth the evoked curves
-IGNORE_MODE2 = True       # hide the dominant low-frequency mode for raw alpha
+SMOOTH_WINDOW = 1         # samples (~24 ms) used to smooth the evoked curves
 RANDOM_STATE = 42
 reject_gap_epochs = True  # drop epochs overlapping trimmed / bad-segment gaps
 
@@ -64,11 +62,12 @@ n_permutations = 1024
 error_band = 'sem'
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
+N_MODES = 6
 N_EMBEDDINGS = 15
 SEQUENCE_LENGTH = 100
 
 # ------------------------------------------------------------------
-# Events to analyse (same identifiers as the original V module).
+# Events to analyse
 # ------------------------------------------------------------------
 EVENT_JOBS = {
     "fix":       {"epoch_window": (-1.0, 1.0), "baseline": (-1.0, -0.5), "plot_window": (-1.0, 1.0), "limit": 2500},
@@ -83,11 +82,13 @@ events_to_run = list(EVENT_JOBS.keys())
 # ----------------------------
 # Paths
 # ----------------------------
+infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, "DyNeMo_Infered_Parameters")
 alpha_subdir = "alpha_reweighted" if use_reweighted_alpha else "alpha"
-TEMPORAL_ANALYSIS = os.path.join(paths.dynemo_temporal_analysis_path, alpha_subdir)
-TEMPORAL_PLOTS = os.path.join(paths.dynemo_plots_temporal_analysis_path, alpha_subdir)
-if use_reweighted_alpha:
-    IGNORE_MODE2 = False
+# Layout: DyNeMo / emb<..>_seq<..> / <analysis> / <alpha_subdir>
+TEMPORAL_ANALYSIS = paths.dynemo_run_save_path(
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("DyNeMo_Temporal_Analysis", alpha_subdir))
+TEMPORAL_PLOTS = paths.dynemo_run_plots_path(
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("Temporal_Analysis", alpha_subdir))
 
 os.makedirs(TEMPORAL_ANALYSIS, exist_ok=True)
 os.makedirs(TEMPORAL_PLOTS, exist_ok=True)
@@ -97,7 +98,8 @@ mode_colors = ["tab:blue", "tab:red", "tab:green", "tab:orange",
 
 
 ################ LOAD ALPHAS ################
-alp = mc.load_alpha(use_reweighted=use_reweighted_alpha)
+alp = mc.load_alpha(use_reweighted=use_reweighted_alpha,
+                    infered_parameters_path=infered_parameters_path)
 
 exp_info = setup.exp_info()
 subjects = exp_info.subjects_ids
@@ -106,10 +108,7 @@ cprint(f">>> Sujetos en alpha: {len(alp)}")
 cprint(f">>> Sujetos en lista:  {len(subjects)}")
 
 n_modes = alp[0].shape[1]
-if IGNORE_MODE2 and n_modes >= 2:
-    mode_indices = [m for m in range(n_modes) if m != 1]
-else:
-    mode_indices = list(range(n_modes))
+mode_indices = list(range(n_modes))
 
 
 ################ EVENT-LOCKED ALPHA ################
@@ -241,7 +240,7 @@ for epoch_id in events_to_run:
                 n_permutations=n_permutations, pval_threshold=pval_threshold)
         cprint(f">>> Permutaciones temporales hechas con N={subj_arr.shape[0]} sujetos")
     elif run_permutations:
-        yprint(">>> Muy pocos sujetos con eventos para estadística; la salto.")
+        yprint(">>> Muy pocos sujetos con eventos para estadística.")
 
     # Save evoked table
     cols = {"time_from_event": times}

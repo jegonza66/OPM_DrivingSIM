@@ -21,13 +21,20 @@ import pickle
 # Setup
 exp_info = setup.exp_info()
 
+# Run parameters (must match the trained model in dynemo_II / dynemo_III)
+n_modes = 6
+n_embeddings = 15
+sequence_length = 100
+
 # Paths:
-spectra_data_path = paths.dynemo_spectra_path
-os.makedirs(paths.dynemo_plots_mixing_coefficients_path, exist_ok=True)
-ALP_PATH = os.path.join(paths.dynemo_infered_parameters_path, "alp.pkl")
-ALP_PLOT_PATH = os.path.join(paths.dynemo_plots_mixing_coefficients_path, "mixing_coefficients.png")
-ALP_REWEIGHTED_PATH = os.path.join(paths.dynemo_infered_parameters_path, "alp_reweighted.pkl")
-ALP_REWEIGHTED_PLOT_PATH = os.path.join(paths.dynemo_plots_mixing_coefficients_path, "mixing_coefficients_weighted.png")
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Spectra")
+dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Infered_Parameters")
+dynemo_plots_mixing_coefficients_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Mixing_Coefficients")
+os.makedirs(dynemo_plots_mixing_coefficients_path, exist_ok=True)
+ALP_PATH = os.path.join(dynemo_infered_parameters_path, "alp.pkl")
+ALP_PLOT_PATH = os.path.join(dynemo_plots_mixing_coefficients_path, "mixing_coefficients.png")
+ALP_REWEIGHTED_PATH = os.path.join(dynemo_infered_parameters_path, "alp_reweighted.pkl")
+ALP_REWEIGHTED_PLOT_PATH = os.path.join(dynemo_plots_mixing_coefficients_path, "mixing_coefficients_weighted.png")
 
 
 ####### ALPHA #######

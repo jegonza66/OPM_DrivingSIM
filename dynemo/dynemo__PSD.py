@@ -26,7 +26,6 @@ import load
 
 from general_utility_functions import cprint, rprint, yprint, gprint
 
-
 # ============================================================
 # PSD CHECK - DYNEMO PREPROCESSING CHECK
 # ============================================================
@@ -54,10 +53,7 @@ freqs_source = None
 
 # Paths
 dynemo_root = paths.dynemo_preprocessing
-psd_root = paths.dynemo_plots_PSD_path
-
-
-
+psd_root = paths.dynemo_plots_preprocessing_path
 
 # Plot function
 def plot_psd_multichannel(freqs, psd_db, title, save_path, mean_label="Mean"):
@@ -102,8 +98,8 @@ for subject_code in exp_info.subjects_ids:
 
     # Mismo filtro/downsample que el dynemo preprocessing
     raw_sensor.filter(
-        l_freq=1,
-        h_freq=45,
+        l_freq=fmin,
+        h_freq=fmax,
         method="iir",
         iir_params={"order": 5, "ftype": "butter"},
     )

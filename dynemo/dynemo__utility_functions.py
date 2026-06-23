@@ -22,10 +22,14 @@ import setup
 # ============================================================
 
 # Calcula exactamente cuántos samples fueron eliminados al inicio entre raw_data.pkl y trimmed_data para un sujeto.
-def get_subject_trim_start(subject_code, n_embeddings=15, sequence_length=100, max_search=5000):
+def get_subject_trim_start(subject_code, n_modes=8, n_embeddings=15, sequence_length=100, max_search=5000):
 
     exp_info = setup.exp_info()
-    raw_data_file = os.path.join( paths.dynemo_object_data_path, "raw_data.pkl")
+    # raw_data.pkl lives in the per-run Save folder (e.g. modes8_emb15_seq200), so
+    # build the path from the same parameters used to trim the data.
+    raw_data_file = os.path.join(
+        paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data"),
+        "raw_data.pkl")
     data = Data(raw_data_file)
     raw_ts = data.time_series()
 
