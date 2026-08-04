@@ -213,24 +213,43 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
             feature=feature, subject=subject, mode_times=mode_times,
             valid_mask=valid_mask)
 
-    # Group features by (tmin, tmax) so each duration is fit with its own model
-    duration_groups = functions_analysis.group_features_by_duration(features, trf_params)
+    # JOINT FIT: fit ALL features together in ONE model so the modes' responses
+    # to different features are mutually deconvolved. Fitting features separately
+    # (e.g. grouped by lag window) breaks that: variance shared between features
+    # in different models leaks into their TRFs. To keep per-feature lag windows
+    # AND a single joint deconvolution, fit over a global window = union of all
+    # per-feature windows, then crop each feature's coefficients to its own window.
+    feature_list = list(features)
+    model_input = np.array([input_arrays[f] for f in feature_list]).T  # (n_times, n_feat)
+    global_tmin = min(functions_analysis.get_feature_tmin_tmax(f, trf_params)[0] for f in feature_list)
+    global_tmax = max(functions_analysis.get_feature_tmin_tmax(f, trf_params)[1] for f in feature_list)
+    sfreq = mode_raw.info['sfreq']
+    global_d0 = int(np.round(global_tmin * sfreq))  # first delay of the joint coef axis
 
+    cprint(f">>> Ajustando TRF (modos) global tmin={global_tmin}, tmax={global_tmax} "
+           f"para {len(feature_list)} features: {feature_list}")
+    joint_rf = functions_analysis.fit_mtrf(
+        meg_data=mode_raw, tmin=global_tmin, tmax=global_tmax,
+        alpha=trf_params['alpha'], fit_power=trf_params['fit_power'],
+        model_input=model_input, chs_id='misc',
+        standarize=trf_params['standarize'], n_jobs=4)
+    joint_best_alpha = functions_analysis.extract_best_alpha(joint_rf)
+
+    # Slice + crop each feature's coefficients back to its own window. Each
+    # feature becomes its own entry (col=0), but all come from the same joint model.
     rf_results = []
-    for (group_tmin, group_tmax), group_features in duration_groups.items():
-        group_input = np.array([input_arrays[f] for f in group_features]).T  # (n_times, n_feat)
-
-        cprint(f">>> Ajustando TRF (modos) tmin={group_tmin}, tmax={group_tmax} "
-               f"para {group_features}")
-        group_rf = functions_analysis.fit_mtrf(
-            meg_data=mode_raw, tmin=group_tmin, tmax=group_tmax,
-            alpha=trf_params['alpha'], fit_power=trf_params['fit_power'],
-            model_input=group_input, chs_id='misc',
-            standarize=trf_params['standarize'], n_jobs=4)
-
-        rf_results.append({'rf': group_rf, 'features': group_features,
-                           'tmin': group_tmin, 'tmax': group_tmax,
-                           'best_alpha': functions_analysis.extract_best_alpha(group_rf)})
+    for feat_idx, feature in enumerate(feature_list):
+        feat_tmin, feat_tmax = functions_analysis.get_feature_tmin_tmax(feature, trf_params)
+        # ReceptiveField lag k -> delay global_d0 + k; same np.round convention
+        # aligns the crop with a standalone ReceptiveField(feat_tmin, feat_tmax).
+        i0 = int(np.round(feat_tmin * sfreq)) - global_d0
+        i1 = int(np.round(feat_tmax * sfreq)) - global_d0  # inclusive
+        coef = joint_rf.coef_[:, feat_idx, i0:i1 + 1]                  # (n_modes, n_lags_feat)
+        feat_rf = functions_analysis._JointTRF(coef[:, np.newaxis, :],  # (n_modes, 1, n_lags_feat)
+                                               best_alpha=joint_best_alpha)
+        rf_results.append({'rf': feat_rf, 'features': [feature],
+                           'tmin': feat_tmin, 'tmax': feat_tmax,
+                           'best_alpha': joint_best_alpha})
 
     # Map each feature to its group RF + column index
     feature_map = {}
