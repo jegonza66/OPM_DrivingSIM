@@ -58,7 +58,7 @@ plot_significance = True             # masked GA brain plots of significant regi
 
 # --------- Parameters ---------#
 meg_params = {'chs_id': 'mag_z',
-              'band_id': None,
+              'band_id': (0.1, 40),
               'data_type': 'processed',
               'filter_sensors': True,
               }
@@ -67,8 +67,12 @@ meg_params = {'chs_id': 'mag_z',
 surf_vol = 'parcellation'  # 'parcellation' | 'vol_parcellation'
 parc = 'aparc.a2009s'          # Surface parcellation (used when surf_vol='parcellation')
 # Volume atlas (used when surf_vol='vol_parcellation') — must match sourcemodel_setup.py
-vol_parc_atlas = 'aal'         # 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer' | or path to .nii.gz
-pick_ori = None  # Must match sourcemodel_setup.py setting
+# 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer' | or path to a .nii(.gz) atlas.
+# For a custom NIfTI you may place a sibling "<name>_labels.txt" (lines "<id> <name>")
+# to get human-readable region names (e.g. MarsAtlas below).
+# vol_parc_atlas = os.path.join(paths.atlas_path, 'colin27_MNI_MarsAtlas.nii')  # MarsAtlas (Colin27/MNI)
+vol_parc_atlas = 'aal'
+pick_ori = None
 spacing = 'ico4'  # Must match sourcemodel_setup.py setting
 pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing in mm)
 
@@ -87,7 +91,7 @@ trf_params = {
     },
     'standarize': True,
     'fit_power': False,
-    'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
+    'alpha': None, #[1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],
     # Alpha cross-validation: k-fold over contiguous temporal blocks.
     # cv_aggregate: 'mean_fisher' (default, Fisher-z averaged per-fold correlation),
     #               'mean' (plain average), or 'pool' (one correlation over pooled preds)
@@ -145,7 +149,7 @@ _trf_prefix = 'TRF_ENV_Source' if trf_params['fit_power'] else 'TRF_Source'
 fig_path = paths.plots_path + (f"{_trf_prefix}_{meg_params['data_type']}/Band_{meg_params['band_id']}/{parc_tag}/"
                                f"{functions_general.features_path_str(trf_params['input_features'])}_{_path_tmin}_{_path_tmax}_"
                                f"bline{_path_bline}{_alpha_tag}_"
-                               f"std{trf_params['standarize']}/{meg_params['chs_id']}/").replace(":", "")
+                               f"std{trf_params['standarize']}_ori{pick_ori}/{meg_params['chs_id']}/").replace(":", "")
 save_path_trf = fig_path.replace(paths.plots_path, paths.save_path)
 
 # --------- Run ---------#
@@ -179,6 +183,20 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
     fwd = mne.read_forward_solution(fname_fwd)
     # Restrict forward to channels present in MEG data (bad channels may have been dropped)
     fwd.pick_channels(meg_data.ch_names)
+
+    # The saved forward is free-orientation. pick_ori='normal' requires a
+    # surface-oriented forward (dipoles expressed in surface-normal coords),
+    # so convert it here. 'normal' is only defined for surface source spaces;
+    # volume parcellations have no surface normal.
+    if pick_ori == 'normal':
+        if surf_vol != 'parcellation':
+            raise ValueError(
+                "pick_ori='normal' is only valid for surface source spaces "
+                f"(surf_vol='parcellation'), not surf_vol='{surf_vol}'. "
+                "Use 'max-power' (scalar, sign-preserving) or None instead.")
+        fwd = mne.convert_forward_solution(fwd, surf_ori=True, force_fixed=False,
+                                           use_cps=True)
+
     src = fwd['src']
 
     # --------- Compute/Load LCMV beamformer ---------#
@@ -204,8 +222,13 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         # Surface parcellation: two hemispheres, use read_labels_from_annot
         labels = mne.read_labels_from_annot(subject_code, parc=parc, subjects_dir=subjects_dir)
 
-        lh_verts = src[0]['vertno']
-        rh_verts = src[1]['vertno']
+        # Use the vertices actually returned by the beamformer (stc.vertices),
+        # not src['vertno']. If two labels resolve to the same centroid vertex,
+        # the source space can hold a duplicate that the beamformer collapses,
+        # leaving source_data with one fewer row than src['vertno']. stc.vertices
+        # is guaranteed to align row-for-row with source_data.
+        lh_verts = stc.vertices[0]
+        rh_verts = stc.vertices[1]
 
         label_names = []
         for vert in lh_verts:
@@ -233,8 +256,35 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         # by transforming centroid positions to MNI152 and reading the atlas
         if os.path.isfile(vol_parc_atlas):
             atlas_img = nib.load(vol_parc_atlas)
-            # Try to load a companion labels file, otherwise use integer IDs
+            # Try to load a companion labels file mapping integer ID -> name.
+            # Looks for "<atlas_basename>_labels.txt" next to the .nii(.gz),
+            # then a generic "<atlas_basename>.txt". Each non-comment line is
+            # "<id> <name>" (whitespace- or comma-separated). If none is found,
+            # fall back to integer IDs.
             vol_label_names_map = None
+            _atlas_base = vol_parc_atlas
+            for _ext in ('.nii.gz', '.nii'):
+                if _atlas_base.endswith(_ext):
+                    _atlas_base = _atlas_base[:-len(_ext)]
+                    break
+            for _labels_fname in (_atlas_base + '_labels.txt', _atlas_base + '.txt'):
+                if os.path.isfile(_labels_fname):
+                    vol_label_names_map = {}
+                    with open(_labels_fname, 'r') as _lf:
+                        for _line in _lf:
+                            _line = _line.strip()
+                            if not _line or _line.startswith('#'):
+                                continue
+                            _parts = _line.replace(',', ' ').split()
+                            try:
+                                _lid = int(_parts[0])
+                            except (ValueError, IndexError):
+                                continue
+                            _lname = ' '.join(_parts[1:]) if len(_parts) > 1 else f'parcel_{_lid}'
+                            vol_label_names_map[_lid] = _lname
+                    print(f'Loaded {len(vol_label_names_map)} region names from '
+                          f'{os.path.basename(_labels_fname)}')
+                    break
         else:
             from nilearn import datasets as ni_datasets
             if vol_parc_atlas == 'aal':
@@ -247,24 +297,73 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
                 atlas = ni_datasets.fetch_atlas_schaefer_2018(n_rois=100, resolution_mm=2)
             else:
                 raise ValueError(f'Unknown vol_parc_atlas: {vol_parc_atlas}')
-            atlas_img = nib.load(atlas['maps'])
-            # Build mapping: integer ID → label name
+            # `atlas['maps']` may be a file path or an already-loaded image
+            # depending on the nilearn version / atlas.
+            atlas_maps = atlas['maps']
+            atlas_img = atlas_maps if isinstance(atlas_maps, nib.spatialimages.SpatialImage) \
+                else nib.load(atlas_maps)
+            # Build mapping: integer ID → label name. nilearn returns `labels`
+            # in different shapes depending on the atlas / version:
+            #   - plain list of names (AAL, Schaefer, Harvard-Oxford)
+            #   - numpy structured/record array with 'index'+'name' fields
+            #   - pandas DataFrame with 'index'+'name' columns (Destrieux 2009)
+            # Normalize to (ids, names) and prefer explicit ids when available.
             atlas_data_full = np.asarray(atlas_img.dataobj).astype(int)
             atlas_label_list = atlas.get('labels', None)
+            atlas_indices = atlas.get('indices', None)  # AAL provides this
+            vol_label_names_map = None
+
             if atlas_label_list is not None:
-                unique_ids = sorted(np.unique(atlas_data_full[atlas_data_full != 0]))
-                # AAL labels list already matches the integer order
-                if len(atlas_label_list) == len(unique_ids):
-                    vol_label_names_map = {uid: str(atlas_label_list[i])
-                                           for i, uid in enumerate(unique_ids)}
+                ids = None
+                names = None
+
+                def _to_str(x):
+                    return x.decode() if isinstance(x, bytes) else str(x)
+
+                # pandas DataFrame (e.g. Destrieux 2009)
+                try:
+                    import pandas as pd
+                    if isinstance(atlas_label_list, pd.DataFrame):
+                        cols = {str(c).lower(): c for c in atlas_label_list.columns}
+                        name_col = cols.get('name', list(atlas_label_list.columns)[-1])
+                        names = [_to_str(v) for v in atlas_label_list[name_col].tolist()]
+                        if 'index' in cols:
+                            ids = [int(v) for v in atlas_label_list[cols['index']].tolist()]
+                except Exception:
+                    pass
+
+                # numpy structured / record array with named fields
+                if names is None and getattr(getattr(atlas_label_list, 'dtype', None), 'names', None):
+                    fields = atlas_label_list.dtype.names
+                    name_field = 'name' if 'name' in fields else fields[-1]
+                    names = [_to_str(v) for v in atlas_label_list[name_field]]
+                    if 'index' in fields:
+                        ids = [int(v) for v in atlas_label_list['index']]
+
+                # plain list / 1-D array of names
+                if names is None:
+                    names = [_to_str(v) for v in list(atlas_label_list)]
+
+                # explicit volume IDs (e.g. AAL `indices`)
+                if ids is None and atlas_indices is not None:
+                    try:
+                        ids = [int(v) for v in atlas_indices]
+                    except Exception:
+                        ids = None
+
+                unique_ids = sorted(int(u) for u in np.unique(atlas_data_full[atlas_data_full != 0]))
+
+                if ids is not None and len(ids) == len(names):
+                    # Direct id → name mapping (most robust)
+                    vol_label_names_map = {int(i): n for i, n in zip(ids, names)}
+                elif len(names) == len(unique_ids):
+                    vol_label_names_map = {uid: names[i] for i, uid in enumerate(unique_ids)}
+                elif len(names) == len(unique_ids) + 1:
+                    # names include a background entry as the first element
+                    vol_label_names_map = {uid: names[i + 1] for i, uid in enumerate(unique_ids)}
                 else:
-                    # labels list includes background as first entry
-                    vol_label_names_map = {}
-                    for i, uid in enumerate(unique_ids):
-                        idx = uid if uid < len(atlas_label_list) else i
-                        vol_label_names_map[uid] = str(atlas_label_list[idx])
-            else:
-                vol_label_names_map = None
+                    vol_label_names_map = {uid: (names[i] if i < len(names) else f'parcel_{uid}')
+                                           for i, uid in enumerate(unique_ids)}
 
         atlas_data = np.asarray(atlas_img.dataobj).astype(int)
         atlas_affine = atlas_img.affine
@@ -281,7 +380,8 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         ])
 
         # Transform centroid vertex positions to MNI152 to find their parcel ID
-        verts = src[0]['vertno']
+        # Use stc.vertices (beamformer output) so label_names aligns with source_data.
+        verts = stc.vertices[0]
         vert_rr_mm = src[0]['rr'][verts] * 1000  # m → mm (surface-RAS)
 
         ras_mni_t = read_ras_mni_t(subject_code, subjects_dir)
@@ -338,9 +438,8 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
                 bad_annotations_array=bad_annotations_array,
                 subj_path=subj_path, fname=fname_var)
 
-        # --------- Fit TRF on source data (per-duration groups) ---------#
+        # --------- Fit TRF on source data (single JOINT model) ---------#
     trf_fname = f'TRF_{subject_id}.pkl'
-    duration_groups = functions_analysis.group_features_by_duration(features, trf_params)
     plot_margin = trf_params.get('plot_margin', 0)
 
     if os.path.isfile(save_path_trf + trf_fname) and use_saved_data:
@@ -352,26 +451,42 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         print('Loaded Source TRF')
     else:
         alpha = trf_params['alpha'] if trf_params['alpha'] else 0
+
+        feature_list = list(features)
+        model_input = np.array([input_arrays[f] for f in feature_list]).T
+        global_tmin = min(functions_analysis.get_feature_tmin_tmax(f, trf_params)[0] for f in feature_list)
+        global_tmax = max(functions_analysis.get_feature_tmin_tmax(f, trf_params)[1] for f in feature_list)
+        sfreq = raw_src.info['sfreq']
+        global_d0 = int(np.round(global_tmin * sfreq))  # first delay of the joint coef axis
+
+        print(f'Fitting mTRF (global tmin={global_tmin}, tmax={global_tmax}) '
+              f'for {len(feature_list)} features: {feature_list}')
+        joint_rf = functions_analysis.fit_mtrf(
+            meg_data=raw_src, tmin=global_tmin, tmax=global_tmax,
+            alpha=alpha,
+            model_input=model_input, chs_id='misc',
+            n_splits=trf_params.get('cv_n_splits', 5),
+            cv_aggregate=trf_params.get('cv_aggregate', 'mean_fisher'),
+            standarize=trf_params['standarize'], fit_power=trf_params['fit_power'])
+        joint_best_alpha = functions_analysis.extract_best_alpha(joint_rf)
+        if joint_best_alpha is not None:
+            print(f'  Best alpha: {joint_best_alpha}')
+
+        # Slice + crop each feature's coefficients back to its own window
         rf_results = []
-        for (group_tmin, group_tmax), group_features in duration_groups.items():
-            group_input = np.array([input_arrays[f] for f in group_features]).T
-            print(f'Fitting mTRF (tmin={group_tmin}, tmax={group_tmax}) for features: {group_features}')
-            group_rf = functions_analysis.fit_mtrf(
-                meg_data=raw_src, tmin=group_tmin, tmax=group_tmax,
-                alpha=alpha,
-                model_input=group_input, chs_id='misc',
-                n_splits=trf_params.get('cv_n_splits', 5),
-                cv_aggregate=trf_params.get('cv_aggregate', 'mean_fisher'),
-                standarize=trf_params['standarize'], fit_power=trf_params['fit_power'])
-            best_alpha = functions_analysis.extract_best_alpha(group_rf)
-            if best_alpha is not None:
-                print(f'  Best alpha: {best_alpha}')
+        for feat_idx, feature in enumerate(feature_list):
+            feat_tmin, feat_tmax = functions_analysis.get_feature_tmin_tmax(feature, trf_params)
+            i0 = int(np.round(feat_tmin * sfreq)) - global_d0
+            i1 = int(np.round(feat_tmax * sfreq)) - global_d0  # inclusive
+            coef = joint_rf.coef_[:, feat_idx, i0:i1 + 1]                  # (n_sources, n_lags_feat)
+            feat_rf = functions_analysis._JointTRF(coef[:, np.newaxis, :],  # (n_sources, 1, n_lags_feat)
+                                                   best_alpha=joint_best_alpha)
             rf_results.append({
-                'rf': group_rf,
-                'features': group_features,
-                'tmin': group_tmin,
-                'tmax': group_tmax,
-                'best_alpha': best_alpha,
+                'rf': feat_rf,
+                'features': [feature],
+                'tmin': feat_tmin,
+                'tmax': feat_tmax,
+                'best_alpha': joint_best_alpha,
             })
 
         # Save alpha report
@@ -381,16 +496,26 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
             save.var(var=rf_results, path=save_path_trf, fname=trf_fname)
 
     # --------- Compute label positions for spatial coloring ---------#
+    # Key positions by the ACTUAL (de-duplicated) channel names. When several
+    # source centroids share a parcel name, mne.create_info appends '-0', '-1',
+    # ... to make them unique, so the Evoked/grand-average channels carry those
+    # suffixes. Using raw_src channel names keeps the keys aligned with the data
+    # and preserves each centroid's own position (instead of collapsing
+    # duplicates onto a single base-name key).
     label_positions = {}
+    src_ch_names = raw_src.info['ch_names']
     if surf_vol == 'parcellation':
-        lh_verts_pos = src[0]['rr'][src[0]['vertno']]
-        rh_verts_pos = src[1]['rr'][src[1]['vertno']]
+        # Index rr by the beamformer-returned vertices (stc.vertices) so the
+        # positions stay aligned with source_data / raw_src channels (see note
+        # in the label-name mapping above about collapsed duplicate centroids).
+        lh_verts_pos = src[0]['rr'][stc.vertices[0]]
+        rh_verts_pos = src[1]['rr'][stc.vertices[1]]
         all_pos = np.vstack([lh_verts_pos, rh_verts_pos])
-        for idx_lp, name_lp in enumerate(label_names):
+        for idx_lp, name_lp in enumerate(src_ch_names):
             label_positions[name_lp] = all_pos[idx_lp]
     elif surf_vol == 'vol_parcellation':
-        vol_verts_pos = src[0]['rr'][src[0]['vertno']]
-        for idx_lp, name_lp in enumerate(label_names):
+        vol_verts_pos = src[0]['rr'][stc.vertices[0]]
+        for idx_lp, name_lp in enumerate(src_ch_names):
             label_positions[name_lp] = vol_verts_pos[idx_lp]
 
     # --------- Extract TRF coefficients as Evoked objects ---------#
