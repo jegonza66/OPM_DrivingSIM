@@ -188,18 +188,6 @@ def get_feature_initial_time(feature, initial_time):
     return [val]
 
 
-def group_features_by_duration(features, trf_params):
-    """Group features by their (tmin, tmax) pair for fitting separate models."""
-    from collections import OrderedDict
-    groups = OrderedDict()
-    for feature in features:
-        tmin, tmax = get_feature_tmin_tmax(feature, trf_params)
-        key = (tmin, tmax)
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(feature)
-    return groups
-
 
 # ---------- Epoch Data ---------- #
 def define_events(subject, meg_data, epoch_id, epoch_keys=None):
@@ -1231,6 +1219,24 @@ def load_input_array_feature(feature, meg_params, subj_path, use_saved_data=True
     else:
         return False, fname_var
 
+class _JointTRF:
+    """Lightweight, picklable stand-in for a fitted ``ReceptiveField``.
+
+    The joint mTRF is fitted *once* over a global lag window with **all** input
+    features stacked together, so every feature is mutually deconvolved (the
+    whole point of the multivariate TRF). Afterwards, each feature's
+    coefficients are sliced out and cropped to that feature's own lag window for
+    interpretation/plotting. This container exposes only what the downstream
+    code (``make_trf_evoked``) touches: the ``coef_`` array, shaped
+    ``(n_channels, n_features, n_lags)`` with ``n_features == 1`` here, and the
+    selected ridge parameter ``best_alpha_``.
+    """
+
+    def __init__(self, coef, best_alpha=None):
+        self.coef_ = coef
+        self.best_alpha_ = best_alpha
+
+
 def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
                 use_saved_data=True, save_data=False, trf_path=None, trf_fname=None):
 
@@ -1267,44 +1273,85 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
                                            bad_annotations_array=bad_annotations_array,
                                            subj_path=subj_path, fname=fname_var)
 
-    # Group features by (tmin, tmax) duration and fit separate models per group
-    duration_groups = group_features_by_duration(features, trf_params)
+    # ------------------------------------------------------------------ #
+    # JOINT FIT
+    # ------------------------------------------------------------------ #
+    # Fit ONE model with ALL features stacked together. Fitting features in
+    # separate models (e.g. grouped by their lag window) breaks the cross-feature
+    # deconvolution: variance shared between features in different models is not
+    # partialled out and leaks into their TRFs. To keep per-feature lag windows
+    # *and* a single joint deconvolution, we fit over a global window spanning the
+    # union of all per-feature windows, then crop each feature's coefficients back
+    # to its own window for interpretation/plotting.
+    feature_list = list(features)
+
+    # Combined design: columns ordered exactly as `feature_list`.
+    model_input = np.array([input_arrays[f] for f in feature_list]).T
+
+    # Global lag window = union of all per-feature windows.
+    global_tmin = min(get_feature_tmin_tmax(f, trf_params)[0] for f in feature_list)
+    global_tmax = max(get_feature_tmin_tmax(f, trf_params)[1] for f in feature_list)
+
     is_multi_region = meg_params['chs_id'] == 'mag' or '_' in meg_params['chs_id']
+    sfreq = meg_data.info['sfreq']
+    global_d0 = int(np.round(global_tmin * sfreq))  # first delay (samples) of the joint coef axis
 
+    # --- Fit the single joint model (per region if multi-region) --- #
+    if is_multi_region:
+        joint_rf = {}
+        joint_best_alpha = {}
+        for chs_subset in all_chs_regions:
+            print(f'Fitting JOINT mTRF for region {chs_subset} '
+                  f'(global tmin={global_tmin}, tmax={global_tmax}, {len(feature_list)} features)')
+            joint_rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=global_tmin, tmax=global_tmax, alpha=alpha,
+                                            fit_power=trf_params['fit_power'], model_input=model_input,
+                                            chs_id=chs_subset, standarize=trf_params['standarize'],
+                                            n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
+            region_alpha = extract_best_alpha(joint_rf[chs_subset])
+            if region_alpha is not None:
+                joint_best_alpha[chs_subset] = region_alpha
+                print(f'  Best alpha ({chs_subset}): {region_alpha}')
+    else:
+        print(f'Fitting JOINT mTRF (global tmin={global_tmin}, tmax={global_tmax}, {len(feature_list)} features)')
+        joint_rf = fit_mtrf(meg_data=meg_data, tmin=global_tmin, tmax=global_tmax, alpha=alpha,
+                            fit_power=trf_params['fit_power'], model_input=model_input,
+                            chs_id=meg_params['chs_id'], standarize=trf_params['standarize'],
+                            n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
+        joint_best_alpha = extract_best_alpha(joint_rf)
+        if joint_best_alpha is not None:
+            print(f'  Best alpha: {joint_best_alpha}')
+
+    # --- Slice + crop each feature's coefficients back to its own window --- #
+    # Each feature becomes its own entry so the rest of the pipeline (which uses
+    # per-feature tmin/tmax) works unchanged, but ALL entries come from the same
+    # jointly-fitted model.
     rf_results = []
-    for (group_tmin, group_tmax), group_features in duration_groups.items():
-        group_input = np.array([input_arrays[f] for f in group_features]).T
+    for feat_idx, feature in enumerate(feature_list):
+        feat_tmin, feat_tmax = get_feature_tmin_tmax(feature, trf_params)
+        # Index range into the global lag axis. ReceptiveField lag k corresponds to
+        # delay global_d0 + k, so the same np.round convention aligns the crop with a
+        # standalone ReceptiveField(feat_tmin, feat_tmax) fit.
+        i0 = int(np.round(feat_tmin * sfreq)) - global_d0
+        i1 = int(np.round(feat_tmax * sfreq)) - global_d0  # inclusive
 
-        # All regions or selected (multiple) regions
         if is_multi_region:
-            group_rf = {}
-            best_alpha = {}
-            for chs_subset in all_chs_regions:
-                print(f'Fitting mTRF for region {chs_subset} (tmin={group_tmin}, tmax={group_tmax})')
-                group_rf[chs_subset] = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
-                                                fit_power=trf_params['fit_power'], model_input=group_input,
-                                                chs_id=chs_subset, standarize=trf_params['standarize'],
-                                                n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
-                region_alpha = extract_best_alpha(group_rf[chs_subset])
-                if region_alpha is not None:
-                    best_alpha[chs_subset] = region_alpha
-                    print(f'  Best alpha ({chs_subset}): {region_alpha}')
-        # One region
+            feat_rf = {}
+            for chs_subset, rf_obj in joint_rf.items():
+                coef = rf_obj.coef_[:, feat_idx, i0:i1 + 1]               # (n_ch, n_lags_feat)
+                feat_rf[chs_subset] = _JointTRF(coef[:, np.newaxis, :],   # (n_ch, 1, n_lags_feat)
+                                                best_alpha=joint_best_alpha.get(chs_subset))
+            feat_best_alpha = joint_best_alpha
         else:
-            group_rf = fit_mtrf(meg_data=meg_data, tmin=group_tmin, tmax=group_tmax, alpha=alpha,
-                                fit_power=trf_params['fit_power'], model_input=group_input,
-                                chs_id=meg_params['chs_id'], standarize=trf_params['standarize'],
-                                n_splits=n_splits, cv_aggregate=cv_aggregate, n_jobs=4)
-            best_alpha = extract_best_alpha(group_rf)
-            if best_alpha is not None:
-                print(f'  Best alpha: {best_alpha}')
+            coef = joint_rf.coef_[:, feat_idx, i0:i1 + 1]
+            feat_rf = _JointTRF(coef[:, np.newaxis, :], best_alpha=joint_best_alpha)
+            feat_best_alpha = joint_best_alpha
 
         rf_results.append({
-            'rf': group_rf,
-            'features': group_features,
-            'tmin': group_tmin,
-            'tmax': group_tmax,
-            'best_alpha': best_alpha,
+            'rf': feat_rf,
+            'features': [feature],
+            'tmin': feat_tmin,
+            'tmax': feat_tmax,
+            'best_alpha': feat_best_alpha,
         })
 
     # Save alpha report
@@ -1575,13 +1622,26 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
         # Geometric adjacency from centroid positions
         if label_positions is None:
             raise ValueError('label_positions is required for volume/geometric adjacency.')
-        missing = [name for name in ch_names if name not in label_positions]
+
+        # Resolve each channel name to a position. Channel names may carry a
+        # '-<n>' uniqueness suffix added by mne.create_info when several centroids
+        # share a parcel name; fall back to the suffix-stripped base name if the
+        # exact name is absent.
+        import re as _re
+
+        def _resolve_pos(name):
+            if name in label_positions:
+                return label_positions[name]
+            base = _re.sub(r'-\d+$', '', name)
+            return label_positions.get(base)
+
+        missing = [name for name in ch_names if _resolve_pos(name) is None]
         if missing:
             raise ValueError(f'label_positions is missing {len(missing)} region(s), '
                              f'e.g. {missing[:3]}')
 
         print(f'Computing geometric centroid adjacency for {n} regions...')
-        pos = np.array([label_positions[name] for name in ch_names])
+        pos = np.array([_resolve_pos(name) for name in ch_names])
         tree = cKDTree(pos)
 
         # Distance-threshold adjacency
