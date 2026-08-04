@@ -17,19 +17,18 @@ exp_info = setup.exp_info()
 task = 'DA2'
 # Define surface, volume, mixed, or parcellation source space
 chs_id = 'mag_z'
-surf_vol = 'vol_parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation' | 'vol_parcellation'
+surf_vol = 'parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation' | 'vol_parcellation'
 force_fsaverage = False
 spacing = 'ico4'
 pos = 10
-pick_ori = None # 'normal' | 'max-power' | None
 depth = None
 parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
 
 # Volumetric atlas in MNI152 space (used when surf_vol='vol_parcellation')
-# Option A: Use a local .nii.gz file
+# Option A: Use a local .nii(.gz) file
 # vol_parc_path = os.path.join(paths.mri_path, 'atlases', 'atlas-Giles_nparc-38_space-MNI_res-8x8x8.nii.gz')
 # Option B: Use a standard atlas fetched via nilearn (e.g. 'aal', 'destrieux', 'harvard_oxford')
-vol_parc_atlas = 'aal'  # 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer' | or path to a .nii.gz file
+vol_parc_atlas = os.path.join(paths.atlas_path, 'colin27_MNI_MarsAtlas.nii')  # MarsAtlas (Colin27/MNI); or 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer'
 
 meg_params = {'data_type': 'processed'}
 
@@ -339,7 +338,10 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
                     f'or provide a path to a .nii.gz file.'
                 )
             vol_parc_name = vol_parc_atlas
-            atlas_img = nib.load(vol_parc_path)
+            # `vol_parc_path` may be a file path or an already-loaded image
+            # depending on the nilearn version / atlas.
+            atlas_img = vol_parc_path if isinstance(vol_parc_path, nib.spatialimages.SpatialImage) \
+                else nib.load(vol_parc_path)
 
         atlas_data = np.asarray(atlas_img.dataobj).astype(int)  # parcel IDs are integers
         atlas_affine = atlas_img.affine            # voxel -> MNI152 mm
