@@ -1369,6 +1369,9 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
             clim['pos_lims'] = clim.pop('lims')
 
 
+    # Initialize so an unrecognized surf_vol doesn't raise UnboundLocalError on return
+    brain = None
+
     if surf_vol == 'volume':
 
         # Nutmeg plot
@@ -1419,7 +1422,7 @@ def sources(stc, src, subject, subjects_dir, initial_time, surf_vol, force_fsave
                     pass
 
     # 3D plot
-    elif surf_vol == 'surface':
+    elif surf_vol == 'surface' or surf_vol == 'parcellation':
 
         brain = stc.plot(src=src, subject=subject, subjects_dir=subjects_dir, hemi=hemi, clim=clim, initial_time=initial_time_plot, views=views, size=(1000, 500),
                          brain_kwargs=dict(surf=surface, alpha=alpha))
