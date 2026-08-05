@@ -69,7 +69,7 @@ def load_alpha(use_reweighted=True, infered_parameters_path=None):
 # ------------------------------------------------------------------
 # Mode time course -> continuous 250 Hz timeline
 # ------------------------------------------------------------------
-def build_mode_raw(subject_code, alpha_i, n_embeddings=15, sequence_length=100,
+def build_mode_raw(subject_code, alpha_i, ch_picks, n_embeddings=15, sequence_length=100,
                    mode_prefix="mode"):
     """Map a subject's alpha (n_time, n_modes) onto the full 250 Hz timeline.
 
@@ -85,7 +85,7 @@ def build_mode_raw(subject_code, alpha_i, n_embeddings=15, sequence_length=100,
     """
     # The DyNeMo-preprocessed raw (1-45 Hz, 250 Hz) defines the full timeline,
     # its length and its BAD annotations.
-    preproc_fif = os.path.join(paths.dynemo_preprocessing, subject_code,
+    preproc_fif = os.path.join(paths.dynemo_preprocessing_path(ch_picks), subject_code,
                                "preprocessed",
                                f"{subject_code}_preproc_1-45Hz_250Hz-raw.fif")
     if not os.path.exists(preproc_fif):
@@ -97,13 +97,14 @@ def build_mode_raw(subject_code, alpha_i, n_embeddings=15, sequence_length=100,
     n_times_full = len(preproc_raw.times)
 
     # kept_times: 0-based seconds of the 250 Hz samples that survived BAD omission
-    kept_file = find_kept_times_file(subject_code, paths.dynemo_preprocessing)
+    kept_file = find_kept_times_file(subject_code, paths.dynemo_preprocessing_path(ch_picks))
     if kept_file is None:
         raise FileNotFoundError(f"No encuentro kept_times para {subject_code}")
     kept_times = np.load(kept_file)
 
     # Samples DyNeMo trimmed at the start (regression-spectra trimming)
     trim_start = get_subject_trim_start(subject_code=subject_code,
+                                        ch_picks=ch_picks,
                                         n_modes=alpha_i.shape[1],
                                         n_embeddings=n_embeddings,
                                         sequence_length=sequence_length)
@@ -254,7 +255,10 @@ def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
     Parameters
     ----------
     data : ndarray, shape (n_subjects, n_times)
-    t_thresh : dict (TFCE, e.g. dict(start=0, step=0.2)) or float
+    t_thresh : dict or float
+        dict -> TFCE, e.g. dict(start=0, step=0.2), passed straight to MNE.
+        float -> two-tailed p for the cluster-forming threshold, converted to a
+        t value with n_subjects - 1 df.
 
     Returns
     -------
@@ -266,15 +270,26 @@ def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
     if t_thresh is None:
         t_thresh = dict(start=0, step=0.2)
 
-    out_type = "indices" if isinstance(t_thresh, dict) else "mask"
+    is_tfce = isinstance(t_thresh, dict)
+    if is_tfce:
+        threshold = t_thresh
+    elif isinstance(t_thresh, float):
+        from scipy import stats
+        threshold = stats.t.ppf(1 - t_thresh / 2, data.shape[0] - 1)
+    else:
+        raise TypeError(
+            "t_thresh must be a dict (TFCE) or a float (two-tailed p), "
+            f"got {type(t_thresh).__name__}")
+
+    out_type = "indices" if is_tfce else "mask"
     _, clusters, cluster_pv, _ = permutation_cluster_1samp_test(
-        X=data, threshold=t_thresh, n_permutations=n_permutations,
+        X=data, threshold=threshold, n_permutations=n_permutations,
         adjacency=None, out_type=out_type, seed=seed, n_jobs=1, verbose=False)
 
     n_times = data.shape[1]
     sig_mask = np.zeros(n_times, dtype=bool)
 
-    if isinstance(t_thresh, dict):
+    if is_tfce:
         # TFCE: cluster_pv is a per-time-point p-value array
         sig_mask = np.asarray(cluster_pv).reshape(n_times) < pval_threshold
     else:
