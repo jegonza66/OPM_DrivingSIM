@@ -55,7 +55,7 @@ reject_gap_epochs = True  # drop epochs overlapping trimmed / bad-segment gaps
 # Statistics: 1-D temporal cluster permutation across subjects (per mode)
 run_permutations = True
 pval_threshold = 0.05
-t_thresh = dict(start=0, step=0.2)   # TFCE; or a float for a fixed t-threshold
+t_thresh = 0.05   # float: two-tailed p -> t; or dict(start=0, step=0.2) for TFCE
 n_permutations = 1024
 
 # Shaded band around each grand-average mode curve: 'sem', 'std', or None
@@ -63,7 +63,7 @@ error_band = 'sem'
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
 from dynemo_config import (n_modes as N_MODES, n_embeddings as N_EMBEDDINGS,
-                           sequence_length as SEQUENCE_LENGTH)
+                           sequence_length as SEQUENCE_LENGTH, ch_picks as CH_PICKS)
 
 # ------------------------------------------------------------------
 # Events to analyse
@@ -81,13 +81,13 @@ events_to_run = list(EVENT_JOBS.keys())
 # ----------------------------
 # Paths
 # ----------------------------
-infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, "DyNeMo_Infered_Parameters")
+infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
 alpha_subdir = "alpha_reweighted" if use_reweighted_alpha else "alpha"
-# Layout: DyNeMo / emb<..>_seq<..> / <analysis> / <alpha_subdir>
+# Layout: DyNeMo / modes<..>_emb<..>_seq<..>_<ch_picks> / <analysis> / <alpha_subdir>
 TEMPORAL_ANALYSIS = paths.dynemo_run_save_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("DyNeMo_Temporal_Analysis", alpha_subdir))
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("DyNeMo_Temporal_Analysis", alpha_subdir))
 TEMPORAL_PLOTS = paths.dynemo_run_plots_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, os.path.join("Temporal_Analysis", alpha_subdir))
+    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("Temporal_Analysis", alpha_subdir))
 
 os.makedirs(TEMPORAL_ANALYSIS, exist_ok=True)
 os.makedirs(TEMPORAL_PLOTS, exist_ok=True)
@@ -142,7 +142,7 @@ for epoch_id in events_to_run:
 
         # Continuous 250 Hz mode "raw" (misc channels) + validity mask
         mode_raw, valid_mask, _ = mc.build_mode_raw(
-            subject_code=subject_code, alpha_i=alp[i],
+            subject_code=subject_code, alpha_i=alp[i], ch_picks=CH_PICKS,
             n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
         fs = mode_raw.info["sfreq"]
         n_times_full = len(mode_raw.times)

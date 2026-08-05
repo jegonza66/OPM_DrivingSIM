@@ -25,6 +25,7 @@ import setup
 import load
 
 from general_utility_functions import cprint, rprint, yprint, gprint
+from dynemo_config import ch_picks as CH_PICKS
 
 # ============================================================
 # PSD CHECK - DYNEMO PREPROCESSING CHECK
@@ -52,8 +53,8 @@ freqs_sensor = None
 freqs_source = None
 
 # Paths
-dynemo_root = paths.dynemo_preprocessing
-psd_root = paths.dynemo_plots_preprocessing_path
+dynemo_root = paths.dynemo_preprocessing_path(CH_PICKS)
+psd_root = paths.dynemo_plots_preprocessing_path(CH_PICKS)
 
 # Plot function
 def plot_psd_multichannel(freqs, psd_db, title, save_path, mean_label="Mean"):

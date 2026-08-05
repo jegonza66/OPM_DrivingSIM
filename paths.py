@@ -70,7 +70,6 @@ correlation_path = main_path + 'Save/Correlation/'
 
 # DyNeMo root and derived data/model paths
 dynemo_path = os.path.join(main_path, "Save/DyNeMo")
-dynemo_preprocessing = os.path.join(dynemo_path, "DyNeMo_Preprocessing")
 dynemo_object_data_path = os.path.join(dynemo_path, "DyNeMo_Object_Data")
 dynemo_prepared_data_path = os.path.join(dynemo_path, "DyNeMo_Prepared_Data")
 dynemo_trained_data_path = os.path.join(dynemo_path, "DyNeMo_Trained_Model")
@@ -88,7 +87,6 @@ dynemo_plots_coherence_maps_path = os.path.join(dynemo_plots_path, "Coherence_Ma
 dynemo_plots_mixing_coefficients_path = os.path.join(dynemo_plots_path, "Mixing_Coefficients")
 dynemo_plots_training_path = os.path.join(dynemo_plots_path, "Training")
 dynemo_plots_temporal_analysis_path = os.path.join(dynemo_plots_path, "Temporal_Analysis")
-dynemo_plots_preprocessing_path = os.path.join(dynemo_plots_path, "Preprocessing")
 dynemo_plots_mixing_trf_path = os.path.join(dynemo_plots_path, "Mixing_TRF")
 
 
@@ -100,19 +98,34 @@ dynemo_plots_mixing_trf_path = os.path.join(dynemo_plots_path, "Mixing_TRF")
 # sequence length). Tagging the output folders with these parameters keeps the
 # plots and saved results of different runs side by side instead of
 # overwriting each other (e.g. "emb15_seq200").
-def dynemo_run_tag(n_modes, n_embeddings, sequence_length):
+# `ch_picks` selects the sensors fed to the LCMV, so it changes the
+# preprocessed data and every result derived from it; it tags both the
+# preprocessing folders and the per-run folders.
+def dynemo_preprocessing_path(ch_picks):
+    """Per-ch_picks preprocessing folder, e.g. Save/DyNeMo/DyNeMo_Preprocessing/mag_z."""
+    return os.path.join(dynemo_path, "DyNeMo_Preprocessing", ch_picks)
+
+
+def dynemo_plots_preprocessing_path(ch_picks):
+    """Per-ch_picks preprocessing plots folder, e.g. Plots/DyNeMo/Preprocessing/mag_z."""
+    return os.path.join(dynemo_plots_path, "Preprocessing", ch_picks)
+
+
+def dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks):
     """Folder name identifying a DyNeMo run by its key parameters."""
-    return f"modes{n_modes}_emb{n_embeddings}_seq{sequence_length}"
+    return f"modes{n_modes}_emb{n_embeddings}_seq{sequence_length}_{ch_picks}"
 
 
-def dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, subdir=None):
-    """Per-run plots folder, e.g. Plots/DyNeMo/emb15_seq200[/<subdir>]."""
-    base = os.path.join(dynemo_plots_path, dynemo_run_tag(n_modes, n_embeddings, sequence_length))
+def dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, subdir=None):
+    """Per-run plots folder, e.g. Plots/DyNeMo/modes6_emb15_seq100_mag_z[/<subdir>]."""
+    base = os.path.join(dynemo_plots_path,
+                        dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks))
     return base if subdir is None else os.path.join(base, subdir)
 
 
-def dynemo_run_save_path(n_modes, n_embeddings, sequence_length, subdir=None):
-    """Per-run Save folder, e.g. Save/DyNeMo/emb15_seq200[/<subdir>]."""
-    base = os.path.join(dynemo_path, dynemo_run_tag(n_modes, n_embeddings, sequence_length))
+def dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, subdir=None):
+    """Per-run Save folder, e.g. Save/DyNeMo/modes6_emb15_seq100_mag_z[/<subdir>]."""
+    base = os.path.join(dynemo_path,
+                        dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks))
     return base if subdir is None else os.path.join(base, subdir)
 

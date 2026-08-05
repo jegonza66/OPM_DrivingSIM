@@ -23,14 +23,14 @@ import mne
 
 
 # Setup
-from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
 force_retrain_model = True
 exp_info = setup.exp_info()
 
 # Paths:
-dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Object_Data")
-dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, "DyNeMo_Trained_Model")
-dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, "Training")
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
+dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Training")
 os.makedirs(dynemo_object_data_path, exist_ok=True)
 os.makedirs(dynemo_trained_data_path, exist_ok=True)
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
@@ -49,7 +49,7 @@ raw_sessions_data = []                 # {'code', 'data'}
 
 for subject_code in exp_info.subjects_ids:
     cprint(f"   >>>     Cargando datos para {subject_code} ")
-    parc_file = os.path.join(paths.dynemo_preprocessing, subject_code,"parcellation", f"{subject_code}_parcel_data_spatial_basis_symmetric.npy")
+    parc_file = os.path.join(paths.dynemo_preprocessing_path(ch_picks), subject_code,"parcellation", f"{subject_code}_parcel_data_spatial_basis_symmetric.npy")
 
 
 

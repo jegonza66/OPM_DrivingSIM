@@ -18,7 +18,10 @@ import mne.beamformer as beamformer
 import paths
 import load
 import setup
+import functions_general
 from general_utility_functions import cprint, rprint, yprint
+
+from dynemo_config import ch_picks as CH_PICKS
 
 from dynemo__utility_functions import (parcellate_spatial_basis_symmetric, save_parcel_data_as_fif, 
             get_meg_ch_types, preprocess_raw_for_dynemo, save_coreg_qc, make_or_load_volume_src,
@@ -58,7 +61,7 @@ PARCELLATION_FILE = os.path.join(paths.atlas_path, "fmri_d100_parcellation_with_
 SUBJECTS_DIR = os.path.join(paths.mri_path, "freesurfer")
 os.environ["SUBJECTS_DIR"] = SUBJECTS_DIR
 
-OUT_ROOT = paths.dynemo_preprocessing
+OUT_ROOT = paths.dynemo_preprocessing_path(CH_PICKS)
 
 
 
@@ -94,7 +97,7 @@ for subject_id in exp_info.subjects_ids:
     os.makedirs(voxel_dir, exist_ok=True)
     parc_dir = os.path.join(subj_dir, "parcellation")
     os.makedirs(parc_dir, exist_ok=True)
-    qc_dir = os.path.join(paths.dynemo_plots_preprocessing_path, subject_code, "qc")
+    qc_dir = os.path.join(paths.dynemo_plots_preprocessing_path(CH_PICKS), subject_code, "qc")
     os.makedirs(qc_dir, exist_ok=True)
 
     subject = setup.subject(subject_id=subject_id)
@@ -107,7 +110,7 @@ for subject_id in exp_info.subjects_ids:
     # ----------------------------
     raw = load.meg(subject_id=subject_id, meg_params={"data_type": DATA_TYPE}).load_data()
     raw = raw.copy()
-    raw = raw.pick("mag")
+    raw = raw.pick(functions_general.pick_chs(chs_id=CH_PICKS, info=raw.info))
 
     ch_types = get_meg_ch_types(raw)
     cprint(f"Processed data cargada para {subject_code}")
