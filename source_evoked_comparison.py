@@ -316,16 +316,25 @@ for subject_id in exp_info.subjects_ids:
     stc_from_evoked = beamformer.apply_lcmv(evoked_sensor, filters)
     evoked_B = mne.EvokedArray(stc_from_evoked.data, info_src.copy(), tmin=tmin,
                                nave=len(ep_sensor), comment='B_sensor_evoked_to_source')
+    # The sensor evoked was baselined, but ||x,y,z|| re-introduces a DC offset,
+    # so baseline again in source space to match A and C.
+    evoked_B.apply_baseline(baseline)
 
     # --------- Pipeline A: continuous source -> epoch -> average --------- #
     events_keep = events[sel].copy()
     events_keep[:, 0] = events_keep[:, 0] - first_samp
     fit_win = (events_keep[:, 0] - n_pre >= 0) & (events_keep[:, 0] + n_post < raw_src.n_times)
     events_keep = events_keep[fit_win]
+    # NOTE: mne.Epochs silently skips baseline correction on 'misc' channels
+    # (rescale is restricted to data channels), which would leave the large
+    # positive DC offset of the free-orientation magnitude in evoked_A and swamp
+    # the response. Baseline the Evoked instead - mean subtraction commutes with
+    # averaging, so this is exactly the intended per-epoch correction.
     ep_src = mne.Epochs(raw_src, events_keep, event_id={feature: 1}, tmin=tmin, tmax=tmax,
-                        baseline=baseline, preload=True, reject=None, proj=False,
+                        baseline=None, preload=True, reject=None, proj=False,
                         reject_by_annotation=False, event_repeated='drop')
     evoked_A = ep_src.average(picks='all')
+    evoked_A.apply_baseline(baseline)
     evoked_A.comment = 'A_continuous_epoch_average'
     print(f'  trials: sensor(B)={len(ep_sensor)}, source(A)={len(ep_src)}')
 
