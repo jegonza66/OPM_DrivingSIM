@@ -35,7 +35,7 @@ os.makedirs(dynemo_object_data_path, exist_ok=True)
 os.makedirs(dynemo_trained_data_path, exist_ok=True)
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
 raw_data_file = os.path.join(dynemo_object_data_path, "raw_data.pkl")
-force_retrain_model = True
+force_retrain_model = False
 
 
 
@@ -178,7 +178,17 @@ if force_retrain_model or not os.path.exists(dynemo_trained_data_path):
 
     # Save the trained model
     model.save(dynemo_trained_data_path)
-    cprint(f"   >>>     Modelo entrenado guardado correctamente en: {dynemo_trained_data_path} ...  ") 
+    cprint(f"   >>>     Modelo entrenado guardado correctamente en: {dynemo_trained_data_path} ...  ")
+
+    # Plot training loss
+    plt.figure()
+    plt.plot(history["loss"])
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training loss")
+    os.makedirs(dynemo_plots_training_path, exist_ok=True)
+    plt.savefig(os.path.join(dynemo_plots_training_path, "training_loss.png"))
+    plt.show()
 
 else:
     cprint(f"   >>>     Modelo entrenado ya existe, cargándolo desde el disco...  ")
@@ -190,13 +200,3 @@ alpha = model.get_alpha(data)
 for i, a in enumerate(alpha):
     fo = a.mean(axis=0)
     rprint(f"Sujeto {i+1}: fractional occupancy = {fo.round(3)} ")
-
-# Plot training loss
-plt.figure()
-plt.plot(history["loss"])
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.title("Training loss")
-os.makedirs(dynemo_plots_training_path, exist_ok=True)
-plt.savefig(os.path.join(dynemo_plots_training_path, "training_loss.png"))
-plt.show()
