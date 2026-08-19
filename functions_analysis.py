@@ -1578,11 +1578,19 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
         (n_regions, n_regions) boolean adjacency including self-connections,
         aligned to `ch_names`.
     """
+    import re as _re
     import scipy.sparse
     from scipy.spatial import cKDTree
 
     n = len(ch_names)
-    name_to_idx = {name: i for i, name in enumerate(ch_names)}
+    # Channel names may carry a '-<n>' uniqueness suffix added by mne.create_info
+    # when several centroids share a parcel name, so one label name maps to a
+    # LIST of columns. Keying on the suffix-stripped name is what lets those
+    # columns be found at all: matching the raw name leaves every duplicated
+    # parcel with only its diagonal, silently out of all spatial clustering.
+    name_to_idx = {}
+    for i, name in enumerate(ch_names):
+        name_to_idx.setdefault(_re.sub(r'-\d+$', '', name), []).append(i)
     adjacency = scipy.sparse.lil_matrix((n, n), dtype=bool)
     for i in range(n):
         adjacency[i, i] = True
@@ -1603,6 +1611,11 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
             vlabel = np.full(rr.shape[0], -1, dtype=int)
             for li, label in enumerate(hemi_labels):
                 vlabel[label.vertices] = li
+                # Several centroids of one parcel are all the same region
+                own = name_to_idx.get(label.name, [])
+                for ia in own:
+                    for ib in own:
+                        adjacency[ia, ib] = True
 
             # All triangle edges -> label pairs that differ -> bordering labels
             edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [0, 2]]], axis=0)
@@ -1613,10 +1626,10 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
 
             for a_id, b_id in border_pairs:
                 na, nb = hemi_labels[a_id].name, hemi_labels[b_id].name
-                if na in name_to_idx and nb in name_to_idx:
-                    ia, ib = name_to_idx[na], name_to_idx[nb]
-                    adjacency[ia, ib] = True
-                    adjacency[ib, ia] = True
+                for ia in name_to_idx.get(na, []):
+                    for ib in name_to_idx.get(nb, []):
+                        adjacency[ia, ib] = True
+                        adjacency[ib, ia] = True
 
     else:
         # Geometric adjacency from centroid positions
@@ -1627,8 +1640,6 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
         # '-<n>' uniqueness suffix added by mne.create_info when several centroids
         # share a parcel name; fall back to the suffix-stripped base name if the
         # exact name is absent.
-        import re as _re
-
         def _resolve_pos(name):
             if name in label_positions:
                 return label_positions[name]
@@ -1663,8 +1674,12 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
 
     adjacency = adjacency.tocsr()
     n_edges = int((adjacency.sum() - n) / 2)
+    # A region with only its diagonal sits out every spatial cluster, so say so
+    # rather than let it pass as a plausible result.
+    n_isolated = int((adjacency.getnnz(axis=1) == 1).sum())
     print(f'Region adjacency: {n} regions, {n_edges} neighbour links '
-          f'(mean degree {2 * n_edges / n:.1f})')
+          f'(mean degree {2 * n_edges / n:.1f})'
+          + (f' -- WARNING: {n_isolated} region(s) have no neighbours' if n_isolated else ''))
     return adjacency
 
 
