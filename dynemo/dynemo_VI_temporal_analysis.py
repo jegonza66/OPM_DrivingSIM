@@ -62,7 +62,7 @@ n_permutations = 1024
 error_band = 'sem'
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
-from dynemo_config import (n_modes as N_MODES, n_embeddings as N_EMBEDDINGS,
+from dynemo_config import (n_modes as N_MODES, n_pca as N_PCA, n_embeddings as N_EMBEDDINGS,
                            sequence_length as SEQUENCE_LENGTH, ch_picks as CH_PICKS)
 
 # ------------------------------------------------------------------
@@ -81,13 +81,13 @@ events_to_run = list(EVENT_JOBS.keys())
 # ----------------------------
 # Paths
 # ----------------------------
-infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
+infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
 alpha_subdir = "alpha_reweighted" if use_reweighted_alpha else "alpha"
-# Layout: DyNeMo / modes<..>_emb<..>_seq<..>_<ch_picks> / <analysis> / <alpha_subdir>
+# Layout: DyNeMo / modes<..>_pca<..>_emb<..>_seq<..>_<ch_picks> / <analysis> / <alpha_subdir>
 TEMPORAL_ANALYSIS = paths.dynemo_run_save_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("DyNeMo_Temporal_Analysis", alpha_subdir))
+    N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("DyNeMo_Temporal_Analysis", alpha_subdir))
 TEMPORAL_PLOTS = paths.dynemo_run_plots_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("Temporal_Analysis", alpha_subdir))
+    N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("Temporal_Analysis", alpha_subdir))
 
 os.makedirs(TEMPORAL_ANALYSIS, exist_ok=True)
 os.makedirs(TEMPORAL_PLOTS, exist_ok=True)
@@ -130,8 +130,8 @@ for epoch_id in events_to_run:
     cprint(f">>> Evento: {epoch_id}")
     cprint("=" * 80)
 
-    all_epochs = []       # list of (n_epochs, n_modes, n_times) per subject
-    subject_evokeds = []  # per-subject mean window (n_times, n_modes) for group stats
+    subject_evokeds = []  # per-subject mean window (n_times, n_modes)
+    n_epochs_total = 0    # only for reporting
     times = None          # epoch time vector (set from the first valid subject)
 
     for i, subject_code in enumerate(subjects):
@@ -143,7 +143,7 @@ for epoch_id in events_to_run:
         # Continuous 250 Hz mode "raw" (misc channels) + validity mask
         mode_raw, valid_mask, _ = mc.build_mode_raw(
             subject_code=subject_code, alpha_i=alp[i], ch_picks=CH_PICKS,
-            n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
+            n_pca=N_PCA, n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
         fs = mode_raw.info["sfreq"]
         n_times_full = len(mode_raw.times)
 
@@ -197,47 +197,43 @@ for epoch_id in events_to_run:
         # Manual baseline correction (misc channels are skipped by MNE baseline)
         base_mask = (epochs.times >= baseline_start) & (epochs.times <= baseline_end)
         data = data - data[:, :, base_mask].mean(axis=2, keepdims=True)
-        all_epochs.append(data)
         subject_evokeds.append(data.mean(axis=0).T)   # (n_times, n_modes)
+        n_epochs_total += len(epochs)
 
-    if len(all_epochs) == 0:
+    if len(subject_evokeds) == 0:
         yprint(f">>> No se generaron epochs para {epoch_id}")
         continue
 
-    epochs_arr = np.concatenate(all_epochs, axis=0)   # (n_epochs, n_modes, n_times)
-    evoked = epochs_arr.mean(axis=0).T                # (n_times, n_modes)
+    # Two-stage average: mean within subject, then across subjects, so every
+    # subject weighs the same regardless of how many epochs survived. Keeps the
+    # curve, the error band and the stats all derived from the same array.
+    subj_arr = np.stack(subject_evokeds, axis=0)      # (n_subjects, n_times, n_modes)
+    n_subjects = subj_arr.shape[0]
 
-    # Smooth each mode's evoked curve
+    # Smooth each subject's curve; the grand mean inherits the smoothing
     kernel = np.ones(SMOOTH_WINDOW) / SMOOTH_WINDOW if (SMOOTH_WINDOW and SMOOTH_WINDOW > 1) else None
     if kernel is not None:
-        evoked = np.apply_along_axis(
-            lambda m: np.convolve(m, kernel, mode="same"), axis=0, arr=evoked)
+        subj_arr = np.apply_along_axis(
+            lambda m: np.convolve(m, kernel, mode="same"), axis=1, arr=subj_arr)
+
+    evoked = subj_arr.mean(axis=0)                    # (n_times, n_modes)
 
     ################ STATISTICS (per-mode temporal cluster permutation) ################
-    # Per-subject smoothed curves (shared by the variability band and the stats)
-    subj_arr = None
-    if len(subject_evokeds) >= 2:
-        subj_arr = np.stack(subject_evokeds, axis=0)   # (n_subjects, n_times, n_modes)
-        # Smooth each subject's curve like the grand mean so band/stats match the plot
-        if kernel is not None:
-            subj_arr = np.apply_along_axis(
-                lambda m: np.convolve(m, kernel, mode="same"), axis=1, arr=subj_arr)
-
     # Variability band across subjects (per mode): (n_times, n_modes)
     band_err = None
-    if subj_arr is not None and error_band:
+    if error_band and n_subjects >= 2:
         band_err = subj_arr.std(axis=0, ddof=1)
         if error_band == 'sem':
-            band_err = band_err / np.sqrt(subj_arr.shape[0])
+            band_err = band_err / np.sqrt(n_subjects)
 
     sig_masks = None
-    if run_permutations and subj_arr is not None:
+    if run_permutations and n_subjects >= 2:
         sig_masks = {}
         for m in range(n_modes):
             sig_masks[m] = mc.temporal_cluster_test(
                 data=subj_arr[:, :, m], t_thresh=t_thresh,
                 n_permutations=n_permutations, pval_threshold=pval_threshold)
-        cprint(f">>> Permutaciones temporales hechas con N={subj_arr.shape[0]} sujetos")
+        cprint(f">>> Permutaciones temporales hechas con N={n_subjects} sujetos")
     elif run_permutations:
         yprint(">>> Muy pocos sujetos con eventos para estadística.")
 
@@ -275,7 +271,8 @@ for epoch_id in events_to_run:
     ax.set_xlim(plot_start, plot_end)
     ax.set_xlabel(f"Time from {epoch_id} (s)")
     ax.set_ylabel("Alpha change from baseline")
-    ax.set_title(f"{epoch_id}: DyNeMo alpha evoked response (MNE, N={epochs_arr.shape[0]})")
+    ax.set_title(f"{epoch_id}: DyNeMo alpha evoked response "
+                 f"(MNE, N={n_subjects} subjects, {n_epochs_total} epochs)")
     ax.legend(fontsize=8, ncol=4)
     plt.tight_layout()
 

@@ -22,12 +22,12 @@ import pickle
 exp_info = setup.exp_info()
 
 # Run parameters (must match the trained model in dynemo_II / dynemo_III)
-from dynemo_config import n_modes, n_embeddings, sequence_length, ch_picks
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
 
 # Paths:
-spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
-dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Infered_Parameters")
-dynemo_plots_mixing_coefficients_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Mixing_Coefficients")
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
+dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Infered_Parameters")
+dynemo_plots_mixing_coefficients_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Mixing_Coefficients")
 os.makedirs(dynemo_plots_mixing_coefficients_path, exist_ok=True)
 ALP_PATH = os.path.join(dynemo_infered_parameters_path, "alp.pkl")
 ALP_PLOT_PATH = os.path.join(dynemo_plots_mixing_coefficients_path, "mixing_coefficients.png")

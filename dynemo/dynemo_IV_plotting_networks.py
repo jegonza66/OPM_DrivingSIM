@@ -26,18 +26,18 @@ from osl_dynamics import files
 exp_info = setup.exp_info()
 
 # Run parameters (must match the trained model in dynemo_II / dynemo_III)
-from dynemo_config import n_modes, n_embeddings, sequence_length, ch_picks
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
 
 # Paths:
 dynemo_prepared_data_path = paths.dynemo_prepared_data_path
-dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
-dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
-spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
-dynemo_plots_PSD_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "PSD")
-dynemo_plots_power_map_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Power_Maps")
-dynemo_plots_coherence_networks_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Coherence_Networks")
-dynemo_plots_coherence_maps_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Coherence_Maps")
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
+dynemo_plots_PSD_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "PSD")
+dynemo_plots_power_map_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Power_Maps")
+dynemo_plots_coherence_networks_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Coherence_Networks")
+dynemo_plots_coherence_maps_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Coherence_Maps")
 subjects_dir = os.path.join(paths.mri_path, 'freesurfer')
 os.environ["SUBJECTS_DIR"] = subjects_dir
 

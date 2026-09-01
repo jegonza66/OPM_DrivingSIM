@@ -74,11 +74,21 @@ for subject_id in exp_info.subjects_ids:
 
     subject_code = subject_id
 
+    subj_dir = os.path.join(OUT_ROOT, subject_code)
+
+    # Written last, so both existing means the subject finished this stage.
+    parc_npy = os.path.join(subj_dir, "parcellation",
+                            f"{subject_code}_parcel_data_spatial_basis_symmetric.npy")
+    summary_file = os.path.join(subj_dir, f"{subject_code}_dynemo_preprocessing_summary.txt")
+
+    if os.path.exists(parc_npy) and os.path.exists(summary_file):
+        cprint(f"\n{subject_code} ya preprocesado, se omite.")
+        continue
+
     cprint("\n" + "=" * 80)
     cprint(f"EMPEZANDO DYNEMO PREPROCESSING PARA {subject_code}")
     cprint("=" * 80)
 
-    subj_dir = os.path.join(OUT_ROOT, subject_code)
     os.makedirs(subj_dir, exist_ok=True)
 
     preproc_dir = os.path.join(subj_dir, "preprocessed")
@@ -162,7 +172,9 @@ for subject_id in exp_info.subjects_ids:
     # ----------------------------
     # Rank
     # ----------------------------
-    rank = mne.compute_rank(raw, rank=None)
+    # Estimated on the filtered/resampled raw, i.e. the same data the covariance
+    # below is computed from.
+    rank = mne.compute_rank(raw_preproc, rank=None)
     cprint(f"Rank estimado por MNE: {rank}")
 
     # ----------------------------
@@ -222,8 +234,6 @@ for subject_id in exp_info.subjects_ids:
     # ----------------------------
     # Parcellation: spatial_basis + symmetric
     # ----------------------------
-    parc_npy = os.path.join(parc_dir, f"{subject_code}_parcel_data_spatial_basis_symmetric.npy",)
-
     parc_fif = os.path.join(parc_dir,f"{subject_code}_lcmv-parc-raw.fif",)
 
     parcel_data, voxel_weightings, parcellation_asmatrix = (
@@ -244,11 +254,6 @@ for subject_id in exp_info.subjects_ids:
     # ----------------------------
     # Summary file
     # ----------------------------
-    summary_file = os.path.join(
-        subj_dir,
-        f"{subject_code}_dynemo_preprocessing_summary.txt",
-    )
-
     with open(summary_file, "w") as f:
         f.write(f"Subject: {subject_code}\n")
         f.write(f"Output dir: {subj_dir}\n")

@@ -111,21 +111,21 @@ def dynemo_plots_preprocessing_path(ch_picks):
     return os.path.join(dynemo_plots_path, "Preprocessing", ch_picks)
 
 
-def dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks):
+def dynemo_run_tag(n_modes, n_pca, n_embeddings, sequence_length, ch_picks):
     """Folder name identifying a DyNeMo run by its key parameters."""
-    return f"modes{n_modes}_emb{n_embeddings}_seq{sequence_length}_{ch_picks}"
+    return f"modes{n_modes}_pca{n_pca}_emb{n_embeddings}_seq{sequence_length}_{ch_picks}"
 
 
-def dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, subdir=None):
-    """Per-run plots folder, e.g. Plots/DyNeMo/modes6_emb15_seq100_mag_z[/<subdir>]."""
+def dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, subdir=None):
+    """Per-run plots folder, e.g. Plots/DyNeMo/modes6_pca80_emb15_seq100_mag_z[/<subdir>]."""
     base = os.path.join(dynemo_plots_path,
-                        dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks))
+                        dynemo_run_tag(n_modes, n_pca, n_embeddings, sequence_length, ch_picks))
     return base if subdir is None else os.path.join(base, subdir)
 
 
-def dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, subdir=None):
-    """Per-run Save folder, e.g. Save/DyNeMo/modes6_emb15_seq100_mag_z[/<subdir>]."""
+def dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, subdir=None):
+    """Per-run Save folder, e.g. Save/DyNeMo/modes6_pca80_emb15_seq100_mag_z[/<subdir>]."""
     base = os.path.join(dynemo_path,
-                        dynemo_run_tag(n_modes, n_embeddings, sequence_length, ch_picks))
+                        dynemo_run_tag(n_modes, n_pca, n_embeddings, sequence_length, ch_picks))
     return base if subdir is None else os.path.join(base, subdir)
 

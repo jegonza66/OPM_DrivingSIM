@@ -60,7 +60,7 @@ else:
 use_reweighted_alpha = True   # True: normalised/reweighted alpha, False: raw alpha
 
 # DyNeMo trimming used in the regression-spectra step (must match dynemo_II)
-from dynemo_config import (n_modes as N_MODES, n_embeddings as N_EMBEDDINGS,
+from dynemo_config import (n_modes as N_MODES, n_pca as N_PCA, n_embeddings as N_EMBEDDINGS,
                            sequence_length as SEQUENCE_LENGTH, ch_picks as CH_PICKS)
 
 #----- Statistics (1-D temporal cluster permutations, per mode) -----#
@@ -98,15 +98,15 @@ trf_params = {
 }
 
 #----- Paths -----#
-infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
+infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
 alpha_tag = 'reweighted' if use_reweighted_alpha else 'raw'
 features_str = '_'.join(trf_params['input_features'].keys())
 run_str = f"alpha_{alpha_tag}/{features_str}/"
-# Layout: DyNeMo / modes<..>_emb<..>_seq<..>_<ch_picks> / Mixing_TRF / alpha_<..> / <features>
+# Layout: DyNeMo / modes<..>_pca<..>_emb<..>_seq<..>_<ch_picks> / Mixing_TRF / alpha_<..> / <features>
 fig_path = paths.dynemo_run_plots_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("Mixing_TRF", run_str))
+    N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("Mixing_TRF", run_str))
 save_path = paths.dynemo_run_save_path(
-    N_MODES, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("DyNeMo_Mixing_TRF", run_str))
+    N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, os.path.join("DyNeMo_Mixing_TRF", run_str))
 os.makedirs(fig_path, exist_ok=True)
 os.makedirs(save_path, exist_ok=True)
 
@@ -204,7 +204,7 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
     # Build the continuous mode "raw" (misc channels) on the 250 Hz timeline
     mode_raw, valid_mask, mode_times = mc.build_mode_raw(
         subject_code=subject_id, alpha_i=alp[sub_idx], ch_picks=CH_PICKS,
-        n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
+        n_pca=N_PCA, n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
 
     # Build feature regressors on the same timeline
     input_arrays = {}

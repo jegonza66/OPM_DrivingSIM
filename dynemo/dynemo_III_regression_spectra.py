@@ -22,14 +22,14 @@ import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 
 # Setup
-from dynemo_config import n_modes, n_embeddings, sequence_length, ch_picks
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
 
 # Paths:
-dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
-dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
-dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Infered_Parameters")
-spectra_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
+dynemo_infered_parameters_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Infered_Parameters")
+spectra_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Spectra")
 raw_data_file = os.path.join(dynemo_object_data_path, "raw_data.pkl")
 os.makedirs(dynemo_infered_parameters_path, exist_ok=True)
 os.makedirs(spectra_data_path, exist_ok=True)

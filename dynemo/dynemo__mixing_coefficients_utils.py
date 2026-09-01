@@ -69,7 +69,7 @@ def load_alpha(use_reweighted=True, infered_parameters_path=None):
 # ------------------------------------------------------------------
 # Mode time course -> continuous 250 Hz timeline
 # ------------------------------------------------------------------
-def build_mode_raw(subject_code, alpha_i, ch_picks, n_embeddings=15, sequence_length=100,
+def build_mode_raw(subject_code, alpha_i, ch_picks, n_pca=80, n_embeddings=15, sequence_length=100,
                    mode_prefix="mode"):
     """Map a subject's alpha (n_time, n_modes) onto the full 250 Hz timeline.
 
@@ -106,6 +106,7 @@ def build_mode_raw(subject_code, alpha_i, ch_picks, n_embeddings=15, sequence_le
     trim_start = get_subject_trim_start(subject_code=subject_code,
                                         ch_picks=ch_picks,
                                         n_modes=alpha_i.shape[1],
+                                        n_pca=n_pca,
                                         n_embeddings=n_embeddings,
                                         sequence_length=sequence_length)
 
@@ -182,7 +183,7 @@ def _is_continuous(feature):
     return any(key in feature for key in _CONTINUOUS_KEYS)
 
 
-def _continuous_feature_array(feature, subject, mode_times):
+def _continuous_feature_array(feature, subject, mode_times, valid_mask):
     """Build a continuous regressor on the alpha (250 Hz) timeline.
 
     Mirrors the continuous-feature handling in functions_analysis.make_mtrf_input
@@ -205,13 +206,28 @@ def _continuous_feature_array(feature, subject, mode_times):
 
     if "_der" in feature:
         sig = np.gradient(sig)
-    if "_std" in feature:
-        sig = (sig - np.mean(sig)) / np.std(sig)
-    elif "_norm" in feature:
-        sig = (sig - np.min(sig)) / (np.max(sig) - np.min(sig))
 
     # Resample (linear interpolation) onto the alpha timeline
-    return np.interp(mode_times, src_times, sig)
+    values = np.interp(mode_times, src_times, sig)
+
+    # Scale using only the samples that survive the gap mask: ridge is
+    # scale-dependent, so trimmed / bad segments must not set the scale.
+    valid = np.asarray(valid_mask) > 0.5
+    if "_std" in feature:
+        scale = values[valid].std()
+        if scale == 0:
+            raise ValueError(f"El regresor continuo '{feature}' no tiene varianza "
+                             f"en {subject.subject_id}")
+        values = (values - values[valid].mean()) / scale
+    elif "_norm" in feature:
+        minimum = values[valid].min()
+        span = values[valid].max() - minimum
+        if span == 0:
+            raise ValueError(f"El regresor continuo '{feature}' no tiene rango "
+                             f"en {subject.subject_id}")
+        values = (values - minimum) / span
+
+    return values
 
 
 def _event_feature_array(feature, subject, mode_times):
@@ -238,7 +254,7 @@ def _event_feature_array(feature, subject, mode_times):
 def make_mode_trf_input(feature, subject, mode_times, valid_mask):
     """Return a single feature regressor on the alpha timeline, gap-masked."""
     if _is_continuous(feature):
-        arr = _continuous_feature_array(feature, subject, mode_times)
+        arr = _continuous_feature_array(feature, subject, mode_times, valid_mask)
     else:
         arr = _event_feature_array(feature, subject, mode_times)
     # Zero-out trimmed / bad-segment samples (same idea as bad_annotations_array)

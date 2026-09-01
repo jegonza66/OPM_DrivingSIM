@@ -24,13 +24,12 @@ import mne
 
 # Setup
 from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
-force_retrain_model = True
 exp_info = setup.exp_info()
 
 # Paths:
-dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
-dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
-dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_embeddings, sequence_length, ch_picks, "Training")
+dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
+dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
+dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Training")
 os.makedirs(dynemo_object_data_path, exist_ok=True)
 os.makedirs(dynemo_trained_data_path, exist_ok=True)
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
@@ -159,7 +158,11 @@ cprint(" ---------------------------------------------- \n  ")
 
 cprint("   >>>     Esta parte podría demorar...  ")
 
-if force_retrain_model or not os.path.exists(dynemo_trained_data_path):
+# The folder is created above, so its mere existence proves nothing: check contents.
+model_exists = (os.path.isdir(dynemo_trained_data_path)
+                and bool(os.listdir(dynemo_trained_data_path)))
+
+if force_retrain_model or not model_exists:
     cprint(f"   >>>     No existe el modelo entrenado o se activo force_retrain_model, iniciando entrenamiento...  ")
     # Train the model for a short period on a small random subset of the data
     cprint(f"   >>>     Buscando buena inicialización  ")
