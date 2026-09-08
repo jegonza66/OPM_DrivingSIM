@@ -11,7 +11,8 @@ A. Intra-subject entropy. Per subject and phase, mean over windows. Fixed-length
    windows remove the phase-duration confound (longer spans visit more modes).
    Unit of inference: subject. Friedman across phases + paired Wilcoxon (Holm).
    The mean mode profiles per phase are reported alongside to show which
-   redistribution of modes any entropy change comes from.
+   redistribution of modes any entropy change comes from; the profile itself
+   needs no windows and is taken over every usable sample of the phase.
 
 B. Inter-subject divergence. Only the Audiobook is a stimulus shared across
    subjects (CF / DA are each subject's own drive), so windows there are tiled
@@ -20,6 +21,14 @@ B. Inter-subject divergence. Only the Audiobook is a stimulus shared across
    divergence between subjects. It is tested against a null that circularly
    shifts each subject's window sequence: every within-subject statistic is kept
    and only the alignment is destroyed. Lower observed than null = convergence.
+
+C. Hard dominance, over each subject's whole phase series (no windows needed).
+   Intra-subject occupancy: share of samples in which each mode is the argmax,
+   per subject and phase (Friedman + paired Wilcoxon, Holm within mode).
+   Group modal share: subjects aligned to the phase onset; at each sample the
+   mode most subjects are in, then the share of the phase each mode held that
+   plurality. Tested per phase against the same circular-shift null, so it asks
+   whether a mode's dominance exceeds what its base rate alone would give.
 """
 
 import sys
@@ -90,8 +99,13 @@ def _holm(pvalues):
     return adjusted
 
 
-def _window_profiles(subject_code, alpha_i):
-    """One row per (phase, window): entropy plus the mode profile."""
+def _subject_phase_data(subject_code, alpha_i):
+    """Window table (one row per phase, window) plus whole-phase summaries.
+
+    The second return maps phase -> {"labels", "profile"}: the argmax label
+    series from the phase onset at the alpha rate (-1 outside the phase or in
+    trimmed / bad-segment gaps) and the mean normalised alpha over usable samples.
+    """
     mode_raw, valid_mask, mode_times = mc.build_mode_raw(
         subject_code=subject_code, alpha_i=alpha_i, ch_picks=CH_PICKS,
         n_pca=N_PCA, n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
@@ -103,18 +117,26 @@ def _window_profiles(subject_code, alpha_i):
     phase_masks = functions_analysis.get_experiment_phase_mask(subject_code, meg_data)
 
     rows = []
+    whole = {}
     for phase in PHASES:
         # onto the alpha timeline, same convention as the continuous regressors
         mask = np.interp(mode_times, meg_data.times, phase_masks[phase].astype(float)) > 0.5
         if not mask.any():
             yprint(f">>> {subject_code}: sin fase {phase}")
             continue
+        on = np.flatnonzero(mask)
+        usable = mask & valid
+        series = np.where(usable, data.argmax(axis=0), -1)[on[0]:on[-1] + 1]
+        kept = data[:, usable]
+        whole[phase] = {
+            "labels": series.astype(np.int8),
+            "profile": (kept / kept.sum(axis=0, keepdims=True)).mean(axis=1),
+        }
         # tile from the phase onset: for the shared stimulus, window k is the
         # same audio for every subject
-        on = np.flatnonzero(mask)
         for k, first in enumerate(range(on[0], on[-1] - win + 2, win)):
             block = slice(first, first + win)
-            if not (mask[block].all() and valid[block].all()):
+            if not usable[block].all():
                 continue
             seg = data[:, block]
             # composition of the mixture, not overall alpha magnitude
@@ -123,7 +145,7 @@ def _window_profiles(subject_code, alpha_i):
                    "onset": mode_times[first], "entropy": _entropy(profile)}
             row.update({f"mode_{m + 1}": profile[m] for m in range(len(profile))})
             rows.append(row)
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), whole
 
 
 def _paired_tests(summary, value):
@@ -147,6 +169,40 @@ def _jsd_per_window(profiles):
     jsd = _entropy(group) - mean_entropy
     jsd[n_present < MIN_SUBJECTS_PER_WINDOW] = np.nan
     return jsd
+
+
+def _stack_labels(series_list):
+    """Right-pad label series with -1 into one (n_subjects, n_samples) array."""
+    longest = max(len(s) for s in series_list)
+    out = np.full((len(series_list), longest), -1, dtype=np.int8)
+    for i, s in enumerate(series_list):
+        out[i, :len(s)] = s
+    return out
+
+
+def _group_modal_share(labels, n_modes):
+    """Share of aligned samples in which each mode is the plurality across subjects.
+
+    labels : (n_subjects, n_samples) argmax per subject, -1 where missing.
+    Samples with fewer than MIN_SUBJECTS_PER_WINDOW subjects are ignored.
+    """
+    counts = np.stack([(labels == m).sum(axis=0) for m in range(n_modes)])
+    enough = counts.sum(axis=0) >= MIN_SUBJECTS_PER_WINDOW
+    if not enough.any():
+        return np.full(n_modes, np.nan)
+    return np.bincount(counts.argmax(axis=0)[enough], minlength=n_modes) / enough.sum()
+
+
+def _shift_each(labels, rng):
+    """Circularly shift each subject's own series within its own span."""
+    shifted = np.full_like(labels, -1)
+    for i, row in enumerate(labels):
+        n = np.flatnonzero(row >= 0)
+        if len(n) < 2:
+            continue
+        span = row[:n[-1] + 1]
+        shifted[i, :len(span)] = np.roll(span, rng.integers(1, len(span)))
+    return shifted
 
 
 ################ PLOTS ################
@@ -178,8 +234,8 @@ def _plot_paired(wide, friedman_p, pair_p, output_file):
     plt.close(fig)
 
 
-def _plot_profiles(phase_profiles, mode_p, output_file):
-    """phase_profiles[phase] is (n_subjects, n_modes) mean alpha share."""
+def _plot_profiles(phase_profiles, mode_p, ylabel, title, output_file):
+    """phase_profiles[phase] is (n_subjects, n_modes); stars from mode_p per mode."""
     n_modes = next(iter(phase_profiles.values())).shape[1]
     modes = np.arange(1, n_modes + 1)
     fig, ax = plt.subplots(figsize=(1.6 * n_modes, 5))
@@ -194,8 +250,36 @@ def _plot_profiles(phase_profiles, mode_p, output_file):
         ax.text(m + 1, top * 1.05, mc.stars(mode_p[m]), ha="center")
     ax.set_xticks(modes)
     ax.set_xlabel("DyNeMo mode")
-    ax.set_ylabel("Mean alpha share in window")
-    ax.set_title("Mode profiles per phase (stars: Friedman, Holm over modes)",
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize="medium")
+    ax.legend()
+    fig.tight_layout()
+    mc.save_figure(fig, output_file)
+    plt.close(fig)
+
+
+def _plot_group_modal(observed, null, pvalues, output_file):
+    """Observed share per mode and phase, null mean as a black tick, stars vs null."""
+    n_modes = len(next(iter(observed.values())))
+    modes = np.arange(1, n_modes + 1)
+    fig, ax = plt.subplots(figsize=(1.6 * n_modes, 5))
+    width = 0.8 / len(PHASES)
+    for i, phase in enumerate(PHASES):
+        if phase not in observed:
+            continue
+        x = modes + (i - (len(PHASES) - 1) / 2) * width
+        ax.bar(x, observed[phase], width, label=phase, color=phase_colors[phase], alpha=0.85)
+        ax.hlines(null[phase].mean(axis=0), x - width / 2, x + width / 2,
+                  color="black", linewidth=1.5)
+        for m in range(n_modes):
+            ax.text(x[m], observed[phase][m] + 0.01, mc.stars(pvalues[phase][m]),
+                    ha="center", fontsize="small")
+    ax.plot([], [], color="black", linewidth=1.5, label="shifted null mean")
+    ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+    ax.set_xticks(modes)
+    ax.set_xlabel("DyNeMo mode")
+    ax.set_ylabel("Share of phase as group modal mode")
+    ax.set_title("Group plurality per phase (stars: > shifted null, Holm over modes)",
                  fontsize="medium")
     ax.legend()
     fig.tight_layout()
@@ -228,6 +312,28 @@ def _plot_divergence(times, jsd, null_curves, observed, null_means, p, output_fi
 
 
 ################ MAIN ################
+def _compare_modes(table, mode_cols, tag, stats_rows, ylabel, title, output_file):
+    """Per-mode Friedman (Holm over modes) + pairwise Wilcoxon across phases, then bars."""
+    phase_values = {phase: [] for phase in PHASES}
+    friedman = []
+    n = None
+    for col in mode_cols:
+        wide, fp, pp = _paired_tests(table, col)
+        n = len(wide)
+        friedman.append(fp)
+        for phase in PHASES:
+            phase_values[phase].append(wide[phase].to_numpy())
+        for (a, b), p in pp.items():
+            stats_rows.append({"measure": f"{tag}_{col}", "unit": "subject", "n": n,
+                               "test": f"wilcoxon {a} vs {b} (holm within mode)", "p": p})
+    adjusted = _holm(friedman)
+    for col, raw, adj in zip(mode_cols, friedman, adjusted):
+        stats_rows.append({"measure": f"{tag}_{col}", "unit": "subject", "n": n,
+                           "test": "friedman (holm over modes)", "p": adj, "p_raw": raw})
+    _plot_profiles({phase: np.column_stack(v) for phase, v in phase_values.items()},
+                   adjusted, ylabel, title, output_file)
+
+
 def main():
     os.makedirs(SAVE_PATH, exist_ok=True)
     os.makedirs(PLOT_PATH, exist_ok=True)
@@ -238,11 +344,18 @@ def main():
     cprint(f">>> Sujetos en alpha: {len(alp)}; en lista: {len(subjects)}")
 
     frames = []
+    labels = {phase: {} for phase in PHASES}
+    profile_rows = []
     for i, subject_code in enumerate(subjects):
         if i >= len(alp):
             rprint(f">>> No hay alpha para {subject_code}")
             continue
-        table = _window_profiles(subject_code, alp[i])
+        table, whole = _subject_phase_data(subject_code, alp[i])
+        for phase, item in whole.items():
+            labels[phase][subject_code] = item["labels"]
+            profile_rows.append({"subject": subject_code, "phase": phase,
+                                 "n_samples": int((item["labels"] >= 0).sum()),
+                                 **{f"mode_{m + 1}": v for m, v in enumerate(item["profile"])}})
         counts = table.groupby("phase").size().reindex(PHASES, fill_value=0)
         cprint(f">>> {subject_code}: ventanas " +
                ", ".join(f"{phase}={n}" for phase, n in counts.items()))
@@ -256,10 +369,13 @@ def main():
     mode_cols = [c for c in profiles.columns if c.startswith("mode_")]
 
     grouped = profiles.groupby(["subject", "phase"])
-    summary = grouped[["entropy"] + mode_cols].mean()
+    summary = grouped[["entropy"]].mean()
     summary["n_windows"] = grouped.size()
     summary = summary.reset_index()
-    summary.to_csv(os.path.join(SAVE_PATH, "subject_phase_summary.csv"), index=False)
+    summary.to_csv(os.path.join(SAVE_PATH, "subject_phase_entropy.csv"), index=False)
+
+    phase_profiles = pd.DataFrame(profile_rows)
+    phase_profiles.to_csv(os.path.join(SAVE_PATH, "subject_phase_profiles.csv"), index=False)
 
     stats_rows = []
 
@@ -278,24 +394,58 @@ def main():
     _plot_paired(wide, friedman_p, pair_p,
                  os.path.join(PLOT_PATH, "phase_entropy_paired.png"))
 
-    ########## mode profiles ##########
-    phase_profiles = {phase: [] for phase in PHASES}
-    mode_friedman = []
-    for col in mode_cols:
-        wide_mode, fp, pp = _paired_tests(summary, col)
-        mode_friedman.append(fp)
-        for phase in PHASES:
-            phase_profiles[phase].append(wide_mode[phase].to_numpy())
-        for (a, b), p in pp.items():
-            stats_rows.append({"measure": col, "unit": "subject", "n": len(wide_mode),
-                               "test": f"wilcoxon {a} vs {b} (holm within mode)", "p": p})
-    phase_profiles = {phase: np.column_stack(cols) for phase, cols in phase_profiles.items()}
-    mode_p = _holm(mode_friedman)
-    for col, raw, adj in zip(mode_cols, mode_friedman, mode_p):
-        stats_rows.append({"measure": col, "unit": "subject", "n": len(wide),
-                           "test": "friedman (holm over modes)", "p": adj, "p_raw": raw})
-    _plot_profiles(phase_profiles, mode_p,
+    ########## mode profiles (soft) and occupancy (hard), whole phase, unit = subject ##########
+    _compare_modes(phase_profiles, mode_cols, "profile", stats_rows,
+                   "Mean alpha share over phase",
+                   "Mode profiles per phase (stars: Friedman, Holm over modes)",
                    os.path.join(PLOT_PATH, "phase_mode_profiles.png"))
+
+    occupancy_rows = []
+    for phase, per_subject in labels.items():
+        for code, s in per_subject.items():
+            held = s[s >= 0]
+            if len(held) == 0:
+                continue
+            share = np.bincount(held, minlength=len(mode_cols)) / len(held)
+            occupancy_rows.append({"subject": code, "phase": phase, "n_samples": len(held),
+                                   **dict(zip(mode_cols, share))})
+    occupancy = pd.DataFrame(occupancy_rows)
+    occupancy.to_csv(os.path.join(SAVE_PATH, "subject_phase_occupancy.csv"), index=False)
+    _compare_modes(occupancy, mode_cols, "occupancy", stats_rows,
+                   "Share of samples as subject's argmax mode",
+                   "Hard occupancy per phase (stars: Friedman, Holm over modes)",
+                   os.path.join(PLOT_PATH, "phase_mode_occupancy.png"))
+
+    ########## group modal share vs shifted null, per phase ##########
+    rng = np.random.default_rng(RANDOM_STATE)
+    modal_obs, modal_null, modal_p = {}, {}, {}
+    for phase, per_subject in labels.items():
+        if len(per_subject) < MIN_SUBJECTS_PER_WINDOW:
+            yprint(f">>> {phase}: solo {len(per_subject)} sujetos, sin dominancia de grupo")
+            continue
+        stacked = _stack_labels(list(per_subject.values()))
+        observed = _group_modal_share(stacked, len(mode_cols))
+        null = np.stack([_group_modal_share(_shift_each(stacked, rng), len(mode_cols))
+                         for _ in range(N_SURROGATES)])
+        raw = (np.sum(null >= observed, axis=0) + 1) / (N_SURROGATES + 1)
+        modal_obs[phase], modal_null[phase], modal_p[phase] = observed, null, _holm(raw)
+        for col, obs, mean_null, p_raw, p_adj in zip(mode_cols, observed, null.mean(axis=0),
+                                                     raw, modal_p[phase]):
+            stats_rows.append({"measure": f"group_modal_{col}", "unit": "sample",
+                               "n": len(per_subject), "phase": phase,
+                               "test": f"circular-shift surrogates x{N_SURROGATES}, observed > null (holm over modes)",
+                               "p": p_adj, "p_raw": p_raw, "observed": obs, "null_mean": mean_null})
+        cprint(f">>> Modo modal de grupo en {phase}: " +
+               ", ".join(f"{c}={o:.3f} (nulo {n:.3f}, p={p:.3g})"
+                         for c, o, n, p in zip(mode_cols, observed, null.mean(axis=0), modal_p[phase])))
+    if modal_obs:
+        pd.DataFrame({f"{phase}_{k}": v for phase in modal_obs
+                      for k, v in (("observed", modal_obs[phase]),
+                                   ("null_mean", modal_null[phase].mean(axis=0)),
+                                   ("p_holm", modal_p[phase]))},
+                     index=mode_cols).to_csv(os.path.join(SAVE_PATH, "group_modal_share.csv"))
+        _plot_group_modal(modal_obs, modal_null, modal_p,
+                          os.path.join(PLOT_PATH, "phase_group_modal_mode.png"))
 
     ########## B. inter-subject divergence on the shared stimulus ##########
     aligned = profiles[profiles["phase"] == ALIGNED_PHASE]

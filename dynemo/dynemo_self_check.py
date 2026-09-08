@@ -70,6 +70,20 @@ def main():
     # too few subjects -> NaN
     assert np.isnan(phase._jsd_per_window(same[:3])).all()
 
+    # group modal share: everyone in mode 2 -> share 1 for mode 2; padding ignored
+    stacked = phase._stack_labels([np.full(10, 2, np.int8), np.full(6, 2, np.int8)] * 4)
+    assert stacked.shape == (8, 10) and (stacked[1, 6:] == -1).all()
+    share = phase._group_modal_share(stacked, 4)
+    assert np.allclose(share, [0, 0, 1, 0])
+    # shifting keeps each subject's own label counts and span
+    seq = np.tile(np.array([0, 1, 2, 3], np.int8), (8, 5))
+    seq[:, -3:] = -1
+    shifted = phase._shift_each(seq, np.random.default_rng(0))
+    assert (shifted[:, -3:] == -1).all()
+    assert np.array_equal(np.sort(shifted[0, :-3]), np.sort(seq[0, :-3]))
+    # few subjects per sample -> NaN
+    assert np.isnan(phase._group_modal_share(stacked[:3], 4)).all()
+
     print("dynemo self-check OK")
 
 
