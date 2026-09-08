@@ -55,7 +55,8 @@ reject_gap_epochs = True  # drop epochs overlapping trimmed / bad-segment gaps
 # Statistics: 1-D temporal cluster permutation across subjects (per mode)
 run_permutations = True
 pval_threshold = 0.05
-t_thresh = 0.05   # float: two-tailed p -> t; or dict(start=0, step=0.2) for TFCE
+# dict -> TFCE; float -> two-tailed p for a fixed cluster-forming t threshold
+t_thresh = {"start": 0.0, "step": 0.2}
 n_permutations = 1024
 
 # Shaded band around each grand-average mode curve: 'sem', 'std', or None
@@ -227,12 +228,16 @@ for epoch_id in events_to_run:
             band_err = band_err / np.sqrt(n_subjects)
 
     sig_masks = None
+    clusters = None
     if run_permutations and n_subjects >= 2:
         sig_masks = {}
+        clusters = []
         for m in range(n_modes):
-            sig_masks[m] = mc.temporal_cluster_test(
+            sig_masks[m], found = mc.temporal_cluster_test(
                 data=subj_arr[:, :, m], t_thresh=t_thresh,
-                n_permutations=n_permutations, pval_threshold=pval_threshold)
+                n_permutations=n_permutations, pval_threshold=pval_threshold,
+                return_clusters=True)
+            clusters.append(found)
         cprint(f">>> Permutaciones temporales hechas con N={n_subjects} sujetos")
     elif run_permutations:
         yprint(">>> Muy pocos sujetos con eventos para estadística.")
@@ -258,26 +263,21 @@ for epoch_id in events_to_run:
                             color=color, alpha=0.15, linewidth=0)
         ax.plot(times, evoked[:, m], color=color,
                 label=f"Mode {m + 1}", linewidth=2, alpha=0.95)
-        # Highlight significant time samples for this mode: trace the curve in
-        # black only where significant (NaN elsewhere so the line breaks at gaps
-        # instead of interpolating across them).
-        if sig_masks is not None and np.any(sig_masks[m]):
-            y_sig = np.where(sig_masks[m], evoked[:, m], np.nan)
-            ax.plot(times, y_sig, color="black", linewidth=2.5,
-                    alpha=0.9, solid_capstyle="round")
 
     ax.axvline(0, color="gray", linewidth=0.9, alpha=0.6, linestyle="--")
     ax.axvspan(baseline_start, baseline_end, color="gray", alpha=0.15, label="Baseline")
     ax.set_xlim(plot_start, plot_end)
+    if clusters is not None:
+        mc.draw_significance_bars(ax, times, clusters, mode_colors)
     ax.set_xlabel(f"Time from {epoch_id} (s)")
     ax.set_ylabel("Alpha change from baseline")
     ax.set_title(f"{epoch_id}: DyNeMo alpha evoked response "
                  f"(MNE, N={n_subjects} subjects, {n_epochs_total} epochs)")
-    ax.legend(fontsize=8, ncol=4)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
     plt.tight_layout()
 
     out_fig = os.path.join(TEMPORAL_PLOTS, f"{epoch_id}_evoked_alpha.png")
-    plt.savefig(out_fig, dpi=300)
+    mc.save_figure(fig, out_fig)
     plt.close()
     cprint(f">>> Figura guardada: {out_fig}")
 

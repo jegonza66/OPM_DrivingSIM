@@ -110,10 +110,10 @@ f, psd, coh, w = spectral.regression_spectra(
 )
 
 # Check results
-cprint(f"f.shape: {f.shape}, → debería ser 1D (p.ej. (45,))")
-cprint(f"psd.shape: {psd.shape}, → debería ser (subjects, 2, states, channels, frequencies)")
-cprint(f"coh.shape: {coh.shape}, → debería ser (subjects, states, channels, channels, frequencies)")
-cprint(f"w.shape: {w.shape}, → debería ser (subjects,)")
+cprint(f"f.shape: {f.shape}, -> debería ser 1D (p.ej. (45,))")
+cprint(f"psd.shape: {psd.shape}, -> debería ser (subjects, 2, states, channels, frequencies)")
+cprint(f"coh.shape: {coh.shape}, -> debería ser (subjects, states, channels, channels, frequencies)")
+cprint(f"w.shape: {w.shape}, -> debería ser (subjects,)")
 
 
 np.save(os.path.join(spectra_data_path, "f.npy"), f)

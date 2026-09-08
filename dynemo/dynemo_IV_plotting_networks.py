@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 from osl_dynamics import files
+import dynemo__mixing_coefficients_utils as mc
 
 
 # Setup
@@ -61,10 +62,10 @@ coh = np.load(os.path.join(spectra_data_path, "coh.npy"))
 w = np.load(os.path.join(spectra_data_path, "w.npy"))
 
 # Check data
-cprint(f"f.shape: {f.shape}, → debería ser 1D (p.ej. (45,))")
-cprint(f"psd.shape: {psd.shape}, → debería ser (subjects, 2, states, channels, frequencies)")
-cprint(f"coh.shape: {coh.shape}, → debería ser (subjects, states, channels, channels, frequencies)")
-cprint(f"w.shape: {w.shape}, → debería ser (subjects,)")
+cprint(f"f.shape: {f.shape}, -> debería ser 1D (p.ej. (45,))")
+cprint(f"psd.shape: {psd.shape}, -> debería ser (subjects, 2, states, channels, frequencies)")
+cprint(f"coh.shape: {coh.shape}, -> debería ser (subjects, states, channels, channels, frequencies)")
+cprint(f"w.shape: {w.shape}, -> debería ser (subjects,)")
 
 
 
@@ -118,11 +119,13 @@ ax.set_xlim([f[0], f[-1]])
 
 ax.legend()
 
-fig.savefig(
+mc.save_figure(
+    fig,
     os.path.join(
         dynemo_plots_PSD_path,
         "group_mean_PSD_coefficients.png"
-    )
+    ),
+    dpi=None,
 )
 
 cprint(
@@ -157,7 +160,7 @@ for i in range(n_modes):
         f"group_mean_PSD_coefficients_mode_{i+1}.png"
     )
 
-    fig.savefig(out_file)
+    mc.save_figure(fig, out_file, dpi=None)
 
     cprint(
         f"   >>>     PSD coeficientes Mode {i+1} guardado en {out_file}"

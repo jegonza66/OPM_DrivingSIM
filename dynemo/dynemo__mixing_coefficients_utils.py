@@ -32,6 +32,7 @@ import mne
 
 import paths
 import load
+import save
 import functions_analysis
 from general_utility_functions import cprint, yprint
 from dynemo__utility_functions import (find_kept_times_file,
@@ -265,7 +266,7 @@ def make_mode_trf_input(feature, subject, mode_times, valid_mask):
 # Statistics: 1-D temporal cluster permutation (per mode)
 # ------------------------------------------------------------------
 def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
-                          pval_threshold=0.05, seed=42):
+                          pval_threshold=0.05, seed=42, return_clusters=False):
     """One-sample temporal cluster permutation test on a single mode curve.
 
     Parameters
@@ -275,6 +276,10 @@ def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
         dict -> TFCE, e.g. dict(start=0, step=0.2), passed straight to MNE.
         float -> two-tailed p for the cluster-forming threshold, converted to a
         t value with n_subjects - 1 df.
+    return_clusters : bool
+        Also return ``[(start, stop, pvalue), ...]`` with ``stop`` exclusive.
+        Under TFCE a cluster is a contiguous significant run and its p value is
+        the largest sample p inside it, so every sample under it meets the level.
 
     Returns
     -------
@@ -304,14 +309,79 @@ def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
 
     n_times = data.shape[1]
     sig_mask = np.zeros(n_times, dtype=bool)
+    intervals = []
 
     if is_tfce:
         # TFCE: cluster_pv is a per-time-point p-value array
-        sig_mask = np.asarray(cluster_pv).reshape(n_times) < pval_threshold
+        sample_pv = np.asarray(cluster_pv).reshape(n_times)
+        sig_mask = sample_pv < pval_threshold
+        edges = np.flatnonzero(np.diff(np.r_[False, sig_mask, False]))
+        for start, stop in zip(edges[::2], edges[1::2]):
+            intervals.append((start, stop, sample_pv[start:stop].max()))
     else:
         for cl, pv in zip(clusters, cluster_pv):
             if pv < pval_threshold:
                 sig_mask[cl[0]] = True
-    return sig_mask
+                idx = np.flatnonzero(cl[0])
+                intervals.append((idx[0], idx[-1] + 1, pv))
+    return (sig_mask, intervals) if return_clusters else sig_mask
+
+
+def stars(pvalue):
+    """Conventional significance marker for a p value."""
+    for threshold, marker in ((0.001, "***"), (0.01, "**"), (0.05, "*")):
+        if pvalue < threshold:
+            return marker
+    return "n.s."
+
+
+def draw_significance_bars(axis, times, mode_clusters, colors):
+    """Draw coloured cluster bars with ``stars p=`` labels above the traces.
+
+    ``mode_clusters[mode]`` is the ``(start, stop, pvalue)`` list from
+    ``temporal_cluster_test``. Each significant mode gets its own row; the
+    figure grows so the data area keeps its size. Call before ``tight_layout``.
+    """
+    from matplotlib.font_manager import FontProperties
+
+    active = [(mode, found) for mode, found in enumerate(mode_clusters) if found]
+    if not active:
+        return
+
+    half_sample = 0.5 * np.median(np.diff(times))
+    font_pt = FontProperties(size="small").get_size_in_points()
+    figure = axis.figure
+    axis_height_in = axis.get_position().height * figure.get_figheight()
+    row_in = 1.7 * font_pt / 72
+    bottom, top = axis.get_ylim()
+    step = row_in * (top - bottom) / axis_height_in
+    for row, (mode, found) in enumerate(active):
+        y = top + step * (row + 0.35)
+        color = colors[mode % len(colors)]
+        edges = []
+        for start, stop, _ in found:
+            t0 = times[start] - half_sample
+            t1 = times[stop - 1] + half_sample
+            axis.hlines(y, t0, t1, color=color, linewidth=3)
+            edges += [t0, t1]
+        # one label per mode: the largest cluster p, centred over the mode's extent
+        pvalue = max(p for _, _, p in found)
+        axis.text(
+            (min(edges) + max(edges)) / 2,
+            y + 0.08 * step,
+            f"{stars(pvalue)} p={pvalue:.2g}",
+            ha="center",
+            va="bottom",
+            fontsize="small",
+            color=color,
+        )
+    axis.set_ylim(bottom, top + step * (len(active) + 0.5))
+    figure.set_figheight(figure.get_figheight() + row_in * (len(active) + 0.5))
+
+
+def save_figure(fig, output_file, dpi=300):
+    """Save a png plus an svg copy in an ``svg`` subfolder next to it."""
+    path, fname = os.path.split(output_file)
+    save.fig(fig, path, os.path.splitext(fname)[0], save_svg=True, dpi=dpi)
 
 

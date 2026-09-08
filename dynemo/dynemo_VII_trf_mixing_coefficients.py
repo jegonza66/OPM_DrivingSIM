@@ -66,7 +66,8 @@ from dynemo_config import (n_modes as N_MODES, n_pca as N_PCA, n_embeddings as N
 #----- Statistics (1-D temporal cluster permutations, per mode) -----#
 run_permutations = True
 pval_threshold = 0.05
-t_thresh = 0.05   # float: two-tailed p -> t; or dict(start=0, step=0.2) for TFCE
+# dict -> TFCE; float -> two-tailed p for a fixed cluster-forming t threshold
+t_thresh = {"start": 0.0, "step": 0.2}
 n_permutations = 1024
 
 #----- Plotting -----#
@@ -119,12 +120,13 @@ mode_colors = ["tab:blue", "tab:red", "tab:green", "tab:orange",
 # PLOTTING HELPER
 # ============================================================
 def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
-                   sig_masks=None, subject_data=None, band=None,
+                   clusters=None, subject_data=None, band=None,
                    save_fig=False, fig_path=None, fname=None):
     """Line plot of the per-mode TRF (one line per mode).
 
-    Significant time samples (per-mode 1-D cluster permutation) are marked as a
-    thick overlay on each mode's curve when `sig_masks` is provided.
+    `clusters[mode]` is the `(start, stop, pvalue)` list from
+    mc.temporal_cluster_test; significant runs are drawn as coloured bars above
+    the traces, one row per mode, labelled with stars and the max cluster p.
 
     If `subject_data` (n_subjects, n_modes, n_times) and `band` ('sem'/'std')
     are given, a shaded variability band across subjects is drawn around each
@@ -153,28 +155,28 @@ def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
                             color=color, alpha=0.15, linewidth=0)
         ax.plot(times[keep], y[keep], color=color,
                 linewidth=1.8, alpha=0.95, label=f"Mode {m + 1}")
-        if sig_masks is not None and m in sig_masks:
-            sig = sig_masks[m] & keep
-            if np.any(sig):
-                # Trace the curve in black ONLY on significant samples; NaN
-                # elsewhere so matplotlib breaks the line instead of
-                # interpolating across non-significant gaps.
-                y_sig = np.where(sig, y, np.nan)
-                ax.plot(times, y_sig, color="black", linewidth=2.5,
-                        alpha=0.9, solid_capstyle="round")
 
     ax.axvline(0, color="gray", linewidth=0.9, alpha=0.6, linestyle="--")
     ax.set_xlim(t0, t1)
+    if clusters is not None:
+        # clip clusters to the plotted window before drawing
+        keep_start, keep_stop = np.flatnonzero(keep)[[0, -1]] + [0, 1]
+        clipped = [
+            [(max(start, keep_start), min(stop, keep_stop), pv)
+             for start, stop, pv in found
+             if min(stop, keep_stop) > max(start, keep_start)]
+            for found in clusters
+        ]
+        mc.draw_significance_bars(ax, times, clipped, colors)
     ax.set_xlabel(f"Time from {feature} (s)")
     ax.set_ylabel("TRF weight (a.u.)")
     if title:
         ax.set_title(title)
-    ax.legend(fontsize=8, ncol=4)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
     plt.tight_layout()
 
     if save_fig and fig_path and fname:
-        os.makedirs(fig_path, exist_ok=True)
-        fig.savefig(os.path.join(fig_path, f"{fname}.png"), dpi=300)
+        mc.save_figure(fig, os.path.join(fig_path, f"{fname}.png"))
     if not display_figs:
         plt.close(fig)
     return fig
@@ -292,18 +294,21 @@ for feature in features:
 
     # Per-mode permutation stats over the TRF time axis
     sig_masks = None
+    clusters = None
     if run_permutations:
         sig_masks = {}
+        clusters = []
         for m in range(n_modes):
             # (n_subjects, n_times) for this mode
             data = subject_data[:, m, :]
-            sig_masks[m] = mc.temporal_cluster_test(
+            sig_masks[m], found = mc.temporal_cluster_test(
                 data=data, t_thresh=t_thresh, n_permutations=n_permutations,
-                pval_threshold=pval_threshold)
+                pval_threshold=pval_threshold, return_clusters=True)
+            clusters.append(found)
 
     _plot_mode_trf(grand_avg, feature, trf_params, mode_colors,
                    title=f"Grand average - {feature} (N={len(feature_evokeds[feature])})",
-                   sig_masks=sig_masks, subject_data=subject_data, band=error_band,
+                   clusters=clusters, subject_data=subject_data, band=error_band,
                    save_fig=save_fig, fig_path=fig_path, fname=f"GA_{feature}")
 
     # Persist the TRF results so they can be reloaded without recomputing.

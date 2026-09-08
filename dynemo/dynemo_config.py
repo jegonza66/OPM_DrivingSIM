@@ -18,6 +18,21 @@ names below. That file is gitignored, so it is never tracked. Example:
 Anything not redefined there falls back to the committed defaults here.
 """
 
+import matplotlib
+
+# Package-wide figure fonts: every dynemo_* script imports this module.
+matplotlib.rcParams.update(
+    {
+        "font.size": 14,
+        "axes.titlesize": 16,
+        "axes.labelsize": 14,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 12,
+        "figure.titlesize": 16,
+    }
+)
+
 # --- Committed defaults --------------------------------------------------
 n_modes = 6           # number of DyNeMo modes
 n_pca = 80            # number of TDE-PCA components (n_channels for the model)

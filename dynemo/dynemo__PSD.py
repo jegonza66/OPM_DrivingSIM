@@ -26,6 +26,7 @@ import load
 
 from general_utility_functions import cprint, rprint, yprint, gprint
 from dynemo_config import ch_picks as CH_PICKS
+import dynemo__mixing_coefficients_utils as mc
 
 # ============================================================
 # PSD CHECK - DYNEMO PREPROCESSING CHECK
@@ -79,7 +80,7 @@ def plot_psd_multichannel(freqs, psd_db, title, save_path, mean_label="Mean"):
     ax.legend()
 
     fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
+    mc.save_figure(fig, save_path, dpi=150)
     plt.close(fig)
 
 

@@ -20,6 +20,7 @@ import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 import matplotlib.pyplot as plt
 import mne
+import dynemo__mixing_coefficients_utils as mc
 
 
 # Setup
@@ -190,8 +191,8 @@ if force_retrain_model or not model_exists:
     plt.ylabel("Loss")
     plt.title("Training loss")
     os.makedirs(dynemo_plots_training_path, exist_ok=True)
-    plt.savefig(os.path.join(dynemo_plots_training_path, "training_loss.png"))
-    plt.show()
+    mc.save_figure(plt.gcf(), os.path.join(dynemo_plots_training_path, "training_loss.png"), dpi=None)
+    plt.close()
 
 else:
     cprint(f"   >>>     Modelo entrenado ya existe, cargándolo desde el disco...  ")

@@ -80,7 +80,7 @@ def var(var, path, fname):
     f.close()
 
 
-def fig(fig, path, fname, save_svg=True):
+def fig(fig, path, fname, save_svg=True, dpi=None):
     """
     Save figure fig with given filename to given path.
 
@@ -92,12 +92,14 @@ def fig(fig, path, fname, save_svg=True):
         Path to save directory
     fname: str
         Filename of file to save
+    dpi: float, optional
+        Resolution of the png; the figure dpi is used when omitted
     """
 
     # Make dir
     os.makedirs(path, exist_ok=True)
     # Save
-    fig.savefig(path + '/' + fname + '.png')
+    fig.savefig(path + '/' + fname + '.png', dpi=dpi)
 
     if save_svg:
         # Create svg directory

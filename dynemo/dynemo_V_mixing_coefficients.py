@@ -17,6 +17,7 @@ import setup
 from general_utility_functions import cprint, rprint, yprint, gprint
 from osl_dynamics.utils import plotting
 import pickle
+import dynemo__mixing_coefficients_utils as mc
 
 # Setup
 exp_info = setup.exp_info()
@@ -44,7 +45,7 @@ with open(ALP_PATH, "rb") as f:
 fig, ax = plotting.plot_alpha(alpha[0], n_samples=2000)
 
 cprint(">>> Guardando plot de alpha en...")
-fig.savefig(ALP_PLOT_PATH, dpi=300)
+mc.save_figure(fig, ALP_PLOT_PATH)
 
 
 ####### ALPHA REWEIGHTED #######
@@ -56,4 +57,4 @@ with open(ALP_REWEIGHTED_PATH, "rb") as f:
 fig, ax = plotting.plot_alpha(alpha[0], n_samples=2000)
 
 cprint(">>> Guardando plot de alpha reweighted en...")
-fig.savefig(ALP_REWEIGHTED_PLOT_PATH, dpi=300)
+mc.save_figure(fig, ALP_REWEIGHTED_PLOT_PATH)

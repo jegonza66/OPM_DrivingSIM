@@ -1,4 +1,4 @@
-"""Run DyNeMo modules I -> VII one after another (params come from dynemo_config)."""
+"""Run DyNeMo modules I -> VIII one after another (params come from dynemo_config)."""
 import os
 import subprocess
 import sys
@@ -42,5 +42,6 @@ subprocess.run([sys.executable, os.path.join(HERE, "dynemo_IV_plotting_networks.
 subprocess.run([sys.executable, os.path.join(HERE, "dynemo_V_mixing_coefficients.py")], check=True)
 subprocess.run([sys.executable, os.path.join(HERE, "dynemo_VI_temporal_analysis.py")], check=True)
 subprocess.run([sys.executable, os.path.join(HERE, "dynemo_VII_trf_mixing_coefficients.py")], check=True)
+subprocess.run([sys.executable, os.path.join(HERE, "dynemo_VIII_phase_entropy.py")], check=True)
 
 
