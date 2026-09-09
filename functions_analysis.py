@@ -19,6 +19,62 @@ from mni_to_atlas import AtlasBrowser
 exp_info = setup.exp_info()
 
 
+DA_TRIGGER_LABELS = ('LL/1', 'LR/1', 'RL/4', 'RR/4')
+
+
+def get_da_stimulus_onsets(meg_data):
+    """DA stimulus onsets (0-based recording seconds) and their trigger labels.
+
+    Taken from the hardware trigger annotations in the raw (LL/1, LR/1, RL/4,
+    RR/4), sorted in time. These are the ground truth for DA timing.
+    """
+    desc = np.asarray(meg_data.annotations.description)
+    sel = np.isin(desc, DA_TRIGGER_LABELS)
+    order = np.argsort(meg_data.annotations.onset[sel])
+    onsets = meg_data.annotations.onset[sel][order] - meg_data.first_time
+    return onsets, desc[sel][order]
+
+
+def get_experiment_phase_times(subject_id, meg_data):
+    """CF / DA / Audio onsets and offsets in 0-based recording seconds.
+
+    The behavioural CSVs (CF_, DA_, AUDIO_EVENT_TIME_1.csv) are all on the
+    simulator clock, whose zero differs per subject. The DA stimulus triggers in
+    the raw are the same 60 events as DA_EVENT_TIME_1.csv, so
+    ``median(trigger - csv)`` gives the clock offset (jitter ~30 ms). DA itself
+    is taken straight from the triggers.
+
+    Returns
+    -------
+    dict : {'CF': (on, off), 'DA': (on, off), 'Audio': (on, off)}
+        DA offset is last stimulus + exp_info.DA_duration. Offsets may exceed
+        the recording end.
+    """
+    import csv
+
+    def column(fname):
+        with open(os.path.join(paths.bh_path, fname), 'r') as f:
+            rows = list(csv.reader(f))
+        if str(subject_id) not in rows[0]:
+            raise ValueError(f'Subject {subject_id} not found in {fname}')
+        idx = rows[0].index(str(subject_id))
+        return [float(r[idx]) for r in rows[1:] if r[idx].strip()]
+
+    cf_on, cf_off = column('CF_EVENT_TIME_1.csv')
+    audio_on, audio_off = column('AUDIO_EVENT_TIME_1.csv')
+    da_stims = np.sort(column('DA_EVENT_TIME_1.csv'))
+
+    triggers, _ = get_da_stimulus_onsets(meg_data)
+    if len(triggers) != len(da_stims):
+        raise ValueError(f'Subject {subject_id}: {len(triggers)} DA triggers in raw vs '
+                         f'{len(da_stims)} stimuli in DA_EVENT_TIME_1.csv')
+    offset = np.median(triggers - da_stims)
+
+    return {'CF': (cf_on + offset, cf_off + offset),
+            'DA': (triggers[0], triggers[-1] + exp_info.DA_duration),
+            'Audio': (audio_on + offset, audio_off + offset)}
+
+
 def get_experiment_phase_mask(subject_id, meg_data):
     """Load experiment phase times and create phase masks for the MEG recording.
 
@@ -39,64 +95,15 @@ def get_experiment_phase_mask(subject_id, meg_data):
     dict : {'CF': np.ndarray, 'DA': np.ndarray, 'Audio': np.ndarray}
         Boolean masks for each phase, same length as meg_data.times.
     """
-    import csv
-
     sfreq = meg_data.info['sfreq']
-    n_times = len(meg_data.times)
-    times = meg_data.times + meg_data.first_time  # absolute times in seconds
+    times = meg_data.times
+    phase_times = get_experiment_phase_times(subject_id, meg_data)
 
-    # Load CF times
-    with open(paths.bh_path + 'CF_EVENT_TIME_1.csv', 'r') as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-    cf_ids = rows[0]
-    cf_onsets = [float(x) for x in rows[1]]
-    cf_offsets = [float(x) for x in rows[2]]
-    cf_idx = cf_ids.index(str(subject_id)) if str(subject_id) in cf_ids else None
-
-    # Load Audio times
-    with open(paths.bh_path + 'AUDIO_EVENT_TIME_1.csv', 'r') as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-    audio_ids = rows[0]
-    audio_onsets = [float(x) for x in rows[1]]
-    audio_offsets = [float(x) for x in rows[2]]
-    audio_idx = audio_ids.index(str(subject_id)) if str(subject_id) in audio_ids else None
-
-    # Load DA times (60 stimuli, DA phase = first stimulus to last + 4s)
-    with open(paths.bh_path + 'DA_EVENT_TIME_1.csv', 'r') as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-    da_ids = rows[0]
-    da_idx = da_ids.index(str(subject_id)) if str(subject_id) in da_ids else None
-
-    # Build boolean masks
-    cf_mask = np.zeros(n_times, dtype=bool)
-    da_mask = np.zeros(n_times, dtype=bool)
-    audio_mask = np.zeros(n_times, dtype=bool)
-
-    if cf_idx is not None:
-        cf_on, cf_off = cf_onsets[cf_idx], cf_offsets[cf_idx]
-        cf_mask = (times >= cf_on) & (times <= cf_off)
-    else:
-        import warnings
-        warnings.warn(f'Subject {subject_id} not found in CF_EVENT_TIME_1.csv. CF mask will be all zeros.')
-
-    if da_idx is not None:
-        da_stim_times = [float(rows[r][da_idx]) for r in range(1, len(rows)) if rows[r][da_idx].strip()]
-        da_on = min(da_stim_times)
-        da_off = max(da_stim_times) + 4.0  # last stimulus + 4s duration
-        da_mask = (times >= da_on) & (times <= da_off)
-    else:
-        import warnings
-        warnings.warn(f'Subject {subject_id} not found in DA_EVENT_TIME_1.csv. DA mask will be all zeros.')
-
-    if audio_idx is not None:
-        audio_on, audio_off = audio_onsets[audio_idx], audio_offsets[audio_idx]
-        audio_mask = (times >= audio_on) & (times <= audio_off)
-    else:
-        import warnings
-        warnings.warn(f'Subject {subject_id} not found in AUDIO_EVENT_TIME_1.csv. Audio mask will be all zeros.')
+    (cf_on, cf_off), (da_on, da_off), (audio_on, audio_off) = (
+        phase_times['CF'], phase_times['DA'], phase_times['Audio'])
+    cf_mask = (times >= cf_on) & (times <= cf_off)
+    da_mask = (times >= da_on) & (times <= da_off)
+    audio_mask = (times >= audio_on) & (times <= audio_off)
 
     # Audio takes priority over DA when they overlap
     da_mask = da_mask & ~audio_mask
@@ -257,11 +264,11 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
         if epoch_keys is None:
 
             if 'CF' == epoch_id:
-                # Get task onset times
-                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-                onset_times = [subject.exp_times['cf_start'] + drive_onset_time - meg_data.first_time]
+                # Whole car-following phase as one long event (0-based seconds)
+                cf_on, cf_off = get_experiment_phase_times(subject.subject_id, meg_data)['CF']
+                onset_times = [cf_on]
                 onset_description = ['CF_onset'] * len(onset_times)
-                task_duration = [exp_info.DA_duration] * len(onset_times)
+                task_duration = [min(cf_off, meg_data.times[-1]) - cf_on] * len(onset_times)
 
                 # Add annotations to MEG data
                 stim_annotations = mne.Annotations(onset=onset_times,
@@ -279,11 +286,9 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['CF_onset']
 
             elif 'DA1' == epoch_id:
-                # Get task onset times as Excel times + 'drive' annotation time (Joaco's decision CHECK PLEASE) Changed to one long epoch
-                # drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-                # onset_times = [time + drive_onset_time for time in subject.da_times['DA times']]
-                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-                onset_times = [subject.da_times['DA times'][0] + drive_onset_time - meg_data.first_time]
+                # First DA stimulus, from the hardware triggers (0-based seconds)
+                da_onsets, _ = get_da_stimulus_onsets(meg_data)
+                onset_times = [da_onsets[0]]
 
                 onset_description = ['DA_onset'] * len(onset_times)
                 task_duration = [exp_info.DA_duration] * len(onset_times)
@@ -304,7 +309,8 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['DA_onset']
 
             elif 'DAall' == epoch_id:
-                onset_times = np.array([subject.master_df['symbol_onset_time'] - meg_data.first_time]).squeeze()
+                # All DA stimuli, from the hardware triggers (0-based seconds)
+                onset_times, _ = get_da_stimulus_onsets(meg_data)
 
                 onset_description = ['DAall'] * len(onset_times)
                 task_duration = [exp_info.DA_duration] * len(onset_times)
@@ -325,16 +331,16 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['DAall']
 
             elif 'DAfull' == epoch_id:
-                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-                onset_times = [subject.da_times['DA times'] + drive_onset_time - meg_data.first_time]
+                # One event per sample while a DA stimulus is on screen
+                onset_times, _ = get_da_stimulus_onsets(meg_data)
 
                 # Create events for all time points during the DA duration
                 sfreq = meg_data.info['sfreq']
                 events_list = []
 
                 for onset in onset_times:
-                    # Convert onset time to sample index
-                    onset_sample = int(onset * sfreq)
+                    # Convert onset time to sample index (events carry first_samp like events_from_annotations)
+                    onset_sample = int(round((onset + meg_data.first_time) * sfreq))
                     # Convert duration to number of samples
                     duration_samples = int(exp_info.DA_duration * sfreq)
                     # Create events for all samples in the duration
@@ -390,12 +396,12 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['right_but']
 
             elif 'baseline' == epoch_id:  # Baseline is from drive start to cf start
-                # Get task onset times as Excel times + 'drive' annotation time
-                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0]
-                onset_times = [drive_onset_time  - meg_data.first_time]
+                drive_onset_time = meg_data.annotations.onset[np.where(meg_data.annotations.description == 'drive')[0]][0] - meg_data.first_time
+                cf_on = get_experiment_phase_times(subject.subject_id, meg_data)['CF'][0]
+                onset_times = [drive_onset_time]
 
                 onset_description = ['drive_onset'] * len(onset_times)
-                task_duration = [subject.exp_times['cf_start']] * len(onset_times)  # cf time in excel file is relative to drive start.
+                task_duration = [cf_on - drive_onset_time] * len(onset_times)
 
                 # Add annotations to MEG data
                 stim_annotations = mne.Annotations(onset=onset_times,
