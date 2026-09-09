@@ -102,6 +102,9 @@ def fig(fig, path, fname, save_svg=True, dpi=None):
     fig.savefig(path + '/' + fname + '.png', dpi=dpi)
 
     if save_svg:
+        # MNE's interactive draw callbacks (blitting) raise on the SVG canvas; drop them first
+        for cid in list(fig.canvas.callbacks.callbacks.get('draw_event', {})):
+            fig.canvas.mpl_disconnect(cid)
         # Create svg directory
         svg_path = path + '/svg/'
         os.makedirs(svg_path, exist_ok=True)
