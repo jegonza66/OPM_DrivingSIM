@@ -385,3 +385,63 @@ def save_figure(fig, output_file, dpi=300):
     save.fig(fig, path, os.path.splitext(fname)[0], save_svg=True, dpi=dpi)
 
 
+# ------------------------------------------------------------------
+# Alpha time-course plots (stacked area / heatmap)
+# ------------------------------------------------------------------
+def _mark_events(ax, events, color="k"):
+    """Vertical dashed lines with a label at the top for ``{label: time}``.
+
+    Labels alternate between two rows so neighbouring markers do not overlap.
+    """
+    for i, (label, t) in enumerate(sorted((events or {}).items(), key=lambda kv: kv[1])):
+        ax.axvline(t, color=color, linestyle="--", linewidth=2)
+        ax.text(t, 1.02 + 0.18 * (i % 2), label, transform=ax.get_xaxis_transform(),
+                ha="center", va="bottom", fontsize="small", fontweight="bold")
+
+
+def plot_alpha_stack(alpha, times, title=None, events=None):
+    """Stacked-area plot of alpha (n_time, n_modes) on an explicit time axis."""
+    import matplotlib.pyplot as plt
+
+    n_modes = alpha.shape[1]
+    colors = plt.cm.tab10.colors[:n_modes]
+    fig, ax = plt.subplots(figsize=(12, 2.5), facecolor="white")
+    ax.stackplot(times, alpha.T, colors=colors,
+                 labels=[f"Mode {m + 1}" for m in range(n_modes)])
+    ax.autoscale(tight=True)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Mixing coefficient")
+    ax.set_title(title, pad=30 if events else None)
+    _mark_events(ax, events)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize="small",
+              frameon=False)
+    fig.tight_layout()
+    return fig
+
+
+def plot_alpha_heatmap(alpha, times, title=None, events=None, cmap="hot"):
+    """Heatmap of alpha (n_time, n_modes): one row per mode, colour = activation (%).
+
+    NaNs (e.g. trimmed / bad-segment gaps) are drawn in grey.
+    """
+    import matplotlib.pyplot as plt
+
+    n_modes = alpha.shape[1]
+    half_dt = 0.5 * np.median(np.diff(times))
+    cmap = plt.get_cmap(cmap).copy()
+    cmap.set_bad("lightgrey")
+    fig, ax = plt.subplots(figsize=(12, 2.5), facecolor="white")
+    im = ax.imshow(alpha.T * 100, aspect="auto", origin="upper", cmap=cmap,
+                   vmin=0, vmax=100,
+                   extent=[times[0] - half_dt, times[-1] + half_dt, n_modes + 0.5, 0.5],
+                   interpolation="nearest")
+    ax.set_yticks(range(1, n_modes + 1))
+    ax.set_yticklabels([f"Mode {m + 1}" for m in range(n_modes)])
+    ax.set_xlabel("Time (s)")
+    ax.set_title(title, pad=30 if events else None)
+    _mark_events(ax, events, color="cyan")  # visible on every level of the hot colormap
+    fig.colorbar(im, ax=ax, pad=0.01, label="Activation (%)")
+    fig.tight_layout()
+    return fig
+
+
