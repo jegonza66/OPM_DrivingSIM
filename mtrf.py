@@ -44,7 +44,10 @@ trf_params = {
         'sac': None,
         'pur': None,
         'Steering_std_der': None,
-        'audio_env_std': None,
+        # Speech vs engine-noise contrast: same envelope, masked to the audiobook (Audio) or to DA (engine only).
+        # The unmasked 'audio_env_std' is left out because it is the sum of the phase pieces (collinear).
+        'audio_env_std_Audio': None,
+        'audio_env_std_DA': None,
         'Gas_std_der': None,
         'Brake_std_der': None,
         'left_but': None,
@@ -70,7 +73,8 @@ time_topos = {
         'sac': 1.2,
         'pur': None,
         'Steering_std_der': None,
-        'audio_env_std': 0.0,
+        'audio_env_std_Audio': 0.1,
+        'audio_env_std_DA': 0.1,
         'Gas_std_der': None,
         'Brake_std_der': None,
         'left_but': None,
