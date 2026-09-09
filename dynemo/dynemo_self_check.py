@@ -75,12 +75,14 @@ def main():
     assert stacked.shape == (8, 10) and (stacked[1, 6:] == -1).all()
     share = phase._group_modal_share(stacked, 4)
     assert np.allclose(share, [0, 0, 1, 0])
-    # shifting keeps each subject's own label counts and span
+    # shifting keeps each subject's own label counts and gap positions
     seq = np.tile(np.array([0, 1, 2, 3], np.int8), (8, 5))
     seq[:, -3:] = -1
+    seq[:, 7:9] = -1
     shifted = phase._shift_each(seq, np.random.default_rng(0))
-    assert (shifted[:, -3:] == -1).all()
-    assert np.array_equal(np.sort(shifted[0, :-3]), np.sort(seq[0, :-3]))
+    assert np.array_equal(shifted < 0, seq < 0)
+    assert np.array_equal(np.sort(shifted[0]), np.sort(seq[0]))
+    assert not np.array_equal(shifted[0], seq[0])
     # few subjects per sample -> NaN
     assert np.isnan(phase._group_modal_share(stacked[:3], 4)).all()
 

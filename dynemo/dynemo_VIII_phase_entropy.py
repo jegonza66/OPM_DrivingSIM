@@ -61,7 +61,7 @@ use_reweighted_alpha = True
 WINDOW_SECONDS = 1.0
 PHASES = ["CF", "DA", "Audio"]
 ALIGNED_PHASE = "Audio"        # the one phase with a stimulus shared across subjects
-MIN_SUBJECTS_PER_WINDOW = 8    # for the inter-subject divergence
+MIN_SUBJECTS_PER_WINDOW = 5    # for the inter-subject measures (7 subjects in total)
 N_SURROGATES = 1000
 RANDOM_STATE = 42
 
@@ -194,14 +194,16 @@ def _group_modal_share(labels, n_modes):
 
 
 def _shift_each(labels, rng):
-    """Circularly shift each subject's own series within its own span."""
-    shifted = np.full_like(labels, -1)
-    for i, row in enumerate(labels):
-        n = np.flatnonzero(row >= 0)
-        if len(n) < 2:
-            continue
-        span = row[:n[-1] + 1]
-        shifted[i, :len(span)] = np.roll(span, rng.integers(1, len(span)))
+    """Circularly shift each subject's valid labels in place of themselves.
+
+    Gaps stay where they are, so which samples reach MIN_SUBJECTS_PER_WINDOW is
+    identical for observed and null; only the temporal order is destroyed.
+    """
+    shifted = labels.copy()
+    for row in shifted:
+        idx = np.flatnonzero(row >= 0)
+        if len(idx) >= 2:
+            row[idx] = np.roll(row[idx], rng.integers(1, len(idx)))
     return shifted
 
 
@@ -462,8 +464,12 @@ def main():
         rng = np.random.default_rng(RANDOM_STATE)
         null_curves = np.empty((N_SURROGATES, n_windows))
         for i in range(N_SURROGATES):
-            shifted = np.stack([np.roll(matrix[s], rng.integers(1, n_windows), axis=0)
-                                for s in range(len(codes))])
+            shifted = matrix.copy()
+            for s in range(len(codes)):
+                # roll only the subject's present windows, keeping its gaps fixed
+                idx = np.flatnonzero(~np.isnan(matrix[s, :, 0]))
+                if len(idx) >= 2:
+                    shifted[s, idx] = np.roll(matrix[s, idx], rng.integers(1, len(idx)), axis=0)
             null_curves[i] = _jsd_per_window(shifted)
         null_means = np.nanmean(null_curves, axis=1)
         p = (np.sum(null_means <= observed) + 1) / (N_SURROGATES + 1)
