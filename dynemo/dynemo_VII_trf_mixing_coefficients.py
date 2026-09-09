@@ -89,7 +89,7 @@ trf_params = {
         'Gas_std_der': None,
         'Brake_std_der': None
     },
-    'standarize': True,
+    'standarize': False,  # keep alpha units so collapsed modes stay visibly flat
     'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],   # ridge; list -> CV
     # Per-feature windows (seconds). dict with 'default' + per-feature overrides.
     'tmin': {'default': -2, 'fix': -1, 'sac': -1, 'audio_env_std': -0.2},
