@@ -79,10 +79,11 @@ pos = 10          # Must match sourcemodel_setup.py setting (volume grid spacing
 # TRF parameters
 trf_params = {
     'input_features': {
-        'fix': None,#['CF','DA', 'Audio'],
-        'sac': None,#['CF','DA', 'Audio'],
-        # 'pur': ['CF','DA', 'Audio'],
-        'audio_env_std': None,
+        # Phase pieces only: the unsplit 'fix'/'sac' would be (near-)collinear with their sum.
+        # Common response and phase effects are computed post hoc from these.
+        'fix_CF': None, 'fix_DA': None, 'fix_Audio': None,
+        'sac_CF': None, 'sac_DA': None, 'sac_Audio': None,
+        'audio_env_std_Audio': None,  # envelope only during the audiobook; the rest is engine noise
         'Steering_std_der': None,
         'Gas_std_der': None,
         'Brake_std_der': None,
@@ -109,8 +110,9 @@ trf_params = {
 initial_time = {'default': None,
                 'fix': None,
                 'sac': [0.0, 0.12],
+                'sac_CF': [0.0, 0.12], 'sac_DA': [0.0, 0.12], 'sac_Audio': [0.0, 0.12],
                 'pur': None,
-                'audio_env_std': 0.0,
+                'audio_env_std_Audio': 0.0,
                 'Steering_std_der': 0.0,
                 'Gas_std_der': 0.0,
                 'Brake_std_der': 0.0,
