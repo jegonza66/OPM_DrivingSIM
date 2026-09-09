@@ -2,6 +2,7 @@ import load
 import matplotlib.pyplot as plt
 import setup
 import paths
+import functions_analysis
 
 save_path = paths.save_path
 plot_path = paths.plots_path
@@ -64,9 +65,9 @@ for subject_id in exp_info.subjects_ids:
     # Fixations on mirror
     fixations['on_mirror'] = fixations['left_mirror'] | fixations['right_mirror']
 
-    # Fixations on stimulus
-    stimulus_onsets = exp_info.master_df[subject_id] #- meg_data.first_time
-    stimulus_offsets = stimulus_onsets + exp_info.DA_duration #- meg_data.first_time
+    # Fixations on stimulus (DA triggers from the raw; the CSV is on the simulator clock)
+    stimulus_onsets = functions_analysis.get_da_stimulus_onsets(meg_data)[0] + meg_data.first_time
+    stimulus_offsets = stimulus_onsets + exp_info.DA_duration
 
     fixations['onset_meg'] = fixations['onset'] + meg_data.first_time
 
