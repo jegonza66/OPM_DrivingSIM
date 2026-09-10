@@ -65,9 +65,8 @@ MIN_SUBJECTS_PER_WINDOW = 5    # for the inter-subject measures (7 subjects in t
 N_SURROGATES = 1000
 RANDOM_STATE = 42
 
-mode_colors = ["tab:blue", "tab:red", "tab:green", "tab:orange",
-               "tab:purple", "tab:brown", "tab:pink", "tab:gray",
-               "tab:olive", "tab:cyan"]
+# tab10, same as plot_alpha_stack in stage V
+mode_colors = [f"C{i}" for i in range(10)]
 phase_colors = {"CF": "tab:gray", "DA": "tab:orange", "Audio": "tab:blue"}
 
 infered_parameters_path = paths.dynemo_run_save_path(

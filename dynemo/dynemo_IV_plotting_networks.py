@@ -86,17 +86,8 @@ psd_coefs_mean = np.mean(psd_coefs, axis=(0,2))
 
 n_modes = psd_coefs_mean.shape[0]
 
-# colores fijos para cada modo
-mode_colors = [
-    "tab:blue",     # mode 1
-    "tab:red",      # mode 2
-    "tab:green",    # mode 3
-    "tab:orange",   # mode 4
-    "tab:purple",   # mode 5
-    "tab:brown",    # mode 6
-    "tab:pink",     # mode 7
-    "tab:gray",     # mode 8
-]
+# colores fijos para cada modo (tab10, same as plot_alpha_stack in stage V)
+mode_colors = [f"C{i}" for i in range(10)]
 
 ############# PSD TODOS LOS MODOS #############
 

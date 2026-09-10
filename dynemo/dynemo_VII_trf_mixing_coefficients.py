@@ -111,9 +111,8 @@ save_path = paths.dynemo_run_save_path(
 os.makedirs(fig_path, exist_ok=True)
 os.makedirs(save_path, exist_ok=True)
 
-mode_colors = ["tab:blue", "tab:red", "tab:green", "tab:orange",
-               "tab:purple", "tab:brown", "tab:pink", "tab:gray",
-               "tab:olive", "tab:cyan"]
+# tab10, same as plot_alpha_stack in stage V
+mode_colors = [f"C{i}" for i in range(10)]
 
 
 # ============================================================
@@ -190,6 +189,7 @@ alp = mc.load_alpha(use_reweighted=use_reweighted_alpha,
 
 features = functions_analysis.expand_features(trf_params['input_features'])
 feature_evokeds = {feature: [] for feature in features}
+feature_events = {feature: 0 for feature in features}
 
 for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
 
@@ -214,6 +214,9 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         input_arrays[feature] = mc.make_mode_trf_input(
             feature=feature, subject=subject, mode_times=mode_times,
             valid_mask=valid_mask)
+    # impulse regressors are 1 at each surviving (unmasked) event
+    subject_events = {f: int(input_arrays[f].sum()) for f in features
+                      if not mc._is_continuous(f)}
 
     # JOINT FIT: fit ALL features together in ONE model so the modes' responses
     # to different features are mutually deconvolved. Fitting features separately
@@ -268,10 +271,14 @@ for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
         evoked = mne.EvokedArray(data=trf, info=mode_raw.info,
                                  tmin=fmap['tmin'], baseline=(fmap['tmin'], fmap['tmax']))
         feature_evokeds[feature].append(evoked)
+        feature_events[feature] += subject_events.get(feature, 0)
 
         if plot_individuals:
+            title = f"{subject_id} - {feature}"
+            if feature in subject_events:
+                title += f" ({subject_events[feature]} events)"
             _plot_mode_trf(evoked, feature, trf_params, mode_colors,
-                           title=f"{subject_id} - {feature}",
+                           title=title,
                            save_fig=save_fig,
                            fig_path=os.path.join(fig_path, subject_id),
                            fname=f"{feature}")
@@ -306,8 +313,11 @@ for feature in features:
                 pval_threshold=pval_threshold, return_clusters=True)
             clusters.append(found)
 
+    title = f"Grand average - {feature} (N={len(feature_evokeds[feature])} subjects"
+    if not mc._is_continuous(feature):
+        title += f", {feature_events[feature]} events"
     _plot_mode_trf(grand_avg, feature, trf_params, mode_colors,
-                   title=f"Grand average - {feature} (N={len(feature_evokeds[feature])})",
+                   title=title + ")",
                    clusters=clusters, subject_data=subject_data, band=error_band,
                    save_fig=save_fig, fig_path=fig_path, fname=f"GA_{feature}")
 

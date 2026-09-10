@@ -70,8 +70,8 @@ from dynemo_config import (n_modes as N_MODES, n_pca as N_PCA, n_embeddings as N
 # Events to analyse
 # ------------------------------------------------------------------
 EVENT_JOBS = {
-    "fix":       {"epoch_window": (-1.0, 1.0), "baseline": (-1.0, -0.5), "plot_window": (-1.0, 1.0), "limit": 2500},
-    "sac":       {"epoch_window": (-1.0, 1.0), "baseline": (-1.0, -0.5), "plot_window": (-1.0, 1.0), "limit": 2500},
+    "fix":       {"epoch_window": (-1.0, 1.0), "baseline": (-1.0, -0.5), "plot_window": (-1.0, 1.0), "limit": None},
+    "sac":       {"epoch_window": (-1.0, 1.0), "baseline": (-1.0, -0.5), "plot_window": (-1.0, 1.0), "limit": None},
     "left_but":  {"epoch_window": (-2.0, 2.0), "baseline": (1.0, 1.5),   "plot_window": (-2.0, 2.0), "limit": None},
     "right_but": {"epoch_window": (-2.0, 2.0), "baseline": (1.0, 1.5),   "plot_window": (-2.0, 2.0), "limit": None}
 }
@@ -93,8 +93,8 @@ TEMPORAL_PLOTS = paths.dynemo_run_plots_path(
 os.makedirs(TEMPORAL_ANALYSIS, exist_ok=True)
 os.makedirs(TEMPORAL_PLOTS, exist_ok=True)
 
-mode_colors = ["tab:blue", "tab:red", "tab:green", "tab:orange",
-               "tab:purple", "tab:brown", "tab:pink", "tab:gray"]
+# tab10, same as plot_alpha_stack in stage V
+mode_colors = [f"C{i}" for i in range(10)]
 
 
 ################ LOAD ALPHAS ################
