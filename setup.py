@@ -73,7 +73,21 @@ class exp_info:
             '18616',
             '18619',
             # '18630'
+            # DA1 (previous OPM dataset)
+            '11074',
+            '11766',
+            '13229',
+            '13703',
+            '14446',
+            '15463',
+            # '15519',  # Too many blinks, ICA data only 195 s and no DA triggers
+            '16589',
+            '16659',
+            # '16991',  # No MRI, incomplete ET .asc file
         ]
+
+        # Subjects from the previous OPM dataset (DA1). Their files are named with DA1 instead of DA2
+        self.DA1_subjects = ['11074', '11766', '13229', '13703', '14446', '15463', '15519', '16589', '16659', '16991']
 
         # Subjects bad channels
         self.bad_channels = {
@@ -91,6 +105,31 @@ class exp_info:
             '17976': 80,
             '17643': 91,
             '10925': 90,
+            # DA1: 11766 and 11074 from Driving Experiment info v0_1, rest 75 (Fake info)
+            '11074': 75,
+            '11766': 78,
+            '13229': 75,
+            '13703': 75,
+            '14446': 75,
+            '15463': 75,
+            '15519': 75,
+            '16589': 75,
+            '16659': 75,
+            '16991': 75,
+        }
+
+        # DA1 phase times in seconds from the 'drive' annotation. From Driving Experiment info v0_1 (cf_end = da_start)
+        self.exp_times = {
+            '11074': {'cf_start': 59, 'cf_end': 172, 'da_start': 172, 'da_end': 535},
+            '11766': {'cf_start': 49, 'cf_end': 161, 'da_start': 161, 'da_end': 526},
+            '13229': {'cf_start': 55, 'cf_end': 168, 'da_start': 168, 'da_end': 546},
+            '13703': {'cf_start': 54, 'cf_end': 168, 'da_start': 168, 'da_end': 532},
+            '14446': {'cf_start': 50, 'cf_end': 164, 'da_start': 164, 'da_end': 528},
+            '15463': {'cf_start': 57, 'cf_end': 171, 'da_start': 171, 'da_end': 536},
+            '15519': {'cf_start': 59, 'cf_end': 172, 'da_start': 172, 'da_end': 546},
+            '16589': {'cf_start': 49, 'cf_end': 161, 'da_start': 161, 'da_end': 525},
+            '16659': {'cf_start': 70, 'cf_end': 183, 'da_start': 183, 'da_end': 581},
+            '16991': {'cf_start': 103, 'cf_end': 216, 'da_start': 216, 'da_end': 534},
         }
 
         # Screen width
@@ -132,6 +171,16 @@ class exp_info:
             '17976': 'balanced',
             '17643': 'balanced',
             '10925': 'balanced',
+            '11074': 'counterbalanced',
+            '11766': 'counterbalanced',
+            '13229': 'counterbalanced',
+            '13703': 'counterbalanced',
+            '14446': 'counterbalanced',
+            '15463': 'counterbalanced',
+            '15519': 'counterbalanced',
+            '16589': 'counterbalanced',
+            '16659': 'counterbalanced',
+            '16991': 'counterbalanced',
         }
 
         # Duration of the DA in seconds
@@ -148,6 +197,17 @@ class exp_info:
             '17976': 'left',
             '17643': 'left',
             '10925': 'right',
+            # DA1: from Driving Experiment info v0_1
+            '11074': 'right',
+            '11766': 'right',
+            '13229': 'right',
+            '13703': 'left',
+            '14446': 'right',
+            '15463': 'right',
+            '15519': 'right',
+            '16589': 'right',
+            '16659': 'right',
+            '16991': 'right',
         }
 
         # ET channels name [Gaze x, Gaze y, Pupils] (Fake info)
@@ -161,6 +221,16 @@ class exp_info:
             '17976': ['meg_x', 'meg_y', 'meg_pupil'],
             '17643': ['meg_x', 'meg_y', 'meg_pupil'],
             '10925': ['meg_x', 'meg_y', 'meg_pupil'],
+            '11074': ['X_pos', 'y_pos', 'Pupil'],
+            '11766': ['X_pos', 'y_pos', 'Pupil'],
+            '13229': ['X_pos', 'y_pos', 'Pupil'],
+            '13703': ['X_pos', 'y_pos', 'Pupil'],
+            '14446': ['X_pos', 'y_pos', 'Pupil'],
+            '15463': ['X_pos', 'y_pos', 'Pupil'],
+            '15519': ['X_pos', 'y_pos', 'Pupil'],
+            '16589': ['X_pos', 'y_pos', 'Pupil'],
+            '16659': ['X_pos', 'y_pos', 'Pupil'],
+            '16991': ['X_pos', 'y_pos', 'Pupil'],
         }
 
         self.subjects_scaled_et = ['17976', '17643', '10925']
@@ -190,6 +260,16 @@ class exp_info:
             '17976': (50, 57, 100, 109, 150, 200, 250, 300),
             '17643': (50, 57, 100, 109, 150, 200, 250, 300),
             '10925': (50, 57, 100, 109, 150, 200, 250, 300),
+            '11074': (50, 57, 100, 109, 150, 200, 250, 300),
+            '11766': (50, 57, 100, 109, 150, 200, 250, 300),
+            '13229': (50, 57, 100, 109, 150, 200, 250, 300),
+            '13703': (50, 57, 100, 109, 150, 200, 250, 300),
+            '14446': (50, 57, 100, 109, 150, 200, 250, 300),
+            '15463': (50, 57, 100, 109, 150, 200, 250, 300),
+            '15519': (50, 57, 100, 109, 150, 200, 250, 300),
+            '16589': (50, 57, 100, 109, 150, 200, 250, 300),
+            '16659': (50, 57, 100, 109, 150, 200, 250, 300),
+            '16991': (50, 57, 100, 109, 150, 200, 250, 300),
         }
 
         self.master_df = pd.read_csv(os.path.join(paths.bh_path, 'DA_EVENT_TIME_1.csv'))
@@ -239,6 +319,16 @@ class analysis_parameters:
             '17976': -2.6,
             '17643': -2.6,
             '10925': -2.6,
+            '11074': -2.6,
+            '11766': -2.6,
+            '13229': -2.6,
+            '13703': -2.6,
+            '14446': -2.6,
+            '15463': -2.6,
+            '15519': -2.6,
+            '16589': -2.6,
+            '16659': -2.6,
+            '16991': -2.6,
         }
 
         # Et samples shift for ET-MEG alignment
@@ -255,6 +345,16 @@ class analysis_parameters:
             '17976': 5e-12,
             '17643': 5e-12,
             '10925': 5e-12,
+            '11074': 5e-12,
+            '11766': 5e-12,
+            '13229': 5e-12,
+            '13703': 5e-12,
+            '14446': 5e-12,
+            '15463': 5e-12,
+            '15519': 5e-12,
+            '16589': 5e-12,
+            '16659': 5e-12,
+            '16991': 5e-12,
         }
 
 

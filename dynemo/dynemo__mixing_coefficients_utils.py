@@ -29,6 +29,8 @@ sys.path.insert(0, os.path.dirname(HERE))
 import pickle
 import numpy as np
 import mne
+from scipy import sparse
+from trflearn.statistics import cluster_1samp, t_threshold
 
 import paths
 import load
@@ -189,7 +191,8 @@ def _continuous_feature_array(feature, subject, mode_times, valid_mask):
 
     Mirrors the continuous-feature handling in functions_analysis.make_mtrf_input
     (derivative / z-score / min-max), then interpolates the processed-raw signal
-    onto the 250 Hz timeline.
+    onto the 250 Hz timeline. As in MEGEYEDYN, also returns where the signal itself
+    is valid: non-finite source samples (and their derivative neighbours) are invalid.
     """
     raw = load.meg(subject_id=subject.subject_id, meg_params={"data_type": "processed"})
     src_times = raw.times  # 0-based seconds at the processed sfreq
@@ -203,17 +206,25 @@ def _continuous_feature_array(feature, subject, mode_times, valid_mask):
         sig = raw.get_data(picks=pick)[0, :]
     else:
         feature_name = feature.replace("_std", "").replace("_der", "")
+        # Channel names differ in case between datasets (DA1 'gas', DA2 'Gas')
+        feature_name = next(ch for ch in raw.ch_names if ch.lower() == feature_name.lower())
         sig = raw.get_data(picks=feature_name)[0, :]
 
+    finite = np.isfinite(sig)
+    if finite.sum() < 2:
+        raise ValueError(f"El regresor continuo '{feature}' tiene menos de 2 muestras finitas "
+                         f"en {subject.subject_id}")
+    # Resample (linear interpolation over finite samples) onto the alpha timeline
+    values = np.interp(mode_times, src_times[finite], sig[finite])
+    feature_valid = np.interp(mode_times, src_times, finite.astype(float), left=0.0, right=0.0) >= 1.0
+
     if "_der" in feature:
-        sig = np.gradient(sig)
+        values = np.gradient(values)
+        feature_valid &= np.r_[False, feature_valid[:-1]] & np.r_[feature_valid[1:], False]
 
-    # Resample (linear interpolation) onto the alpha timeline
-    values = np.interp(mode_times, src_times, sig)
-
-    # Scale using only the samples that survive the gap mask: ridge is
+    # Scale using only the samples that survive the gap mask and are valid: ridge is
     # scale-dependent, so trimmed / bad segments must not set the scale.
-    valid = np.asarray(valid_mask) > 0.5
+    valid = (np.asarray(valid_mask) > 0.5) & feature_valid
     if "_std" in feature:
         scale = values[valid].std()
         if scale == 0:
@@ -228,7 +239,7 @@ def _continuous_feature_array(feature, subject, mode_times, valid_mask):
                              f"en {subject.subject_id}")
         values = (values - minimum) / span
 
-    return values
+    return values, feature_valid
 
 
 def _event_feature_array(feature, subject, mode_times):
@@ -253,18 +264,51 @@ def _event_feature_array(feature, subject, mode_times):
 
 
 def make_mode_trf_input(feature, subject, mode_times, valid_mask):
-    """Return a single feature regressor on the alpha timeline, gap-masked."""
+    """Return a single feature regressor on the alpha timeline, zero-masked where the
+    data (trimmed / bad segments) or the continuous signal itself is invalid."""
     if _is_continuous(feature):
-        arr = _continuous_feature_array(feature, subject, mode_times, valid_mask)
+        arr, feature_valid = _continuous_feature_array(feature, subject, mode_times, valid_mask)
     else:
         arr = _event_feature_array(feature, subject, mode_times)
-    # Zero-out trimmed / bad-segment samples (same idea as bad_annotations_array)
-    return arr * valid_mask
+        feature_valid = np.ones(len(mode_times), dtype=bool)
+    return arr * (feature_valid & (np.asarray(valid_mask) > 0.5))
 
 
 # ------------------------------------------------------------------
 # Statistics: 1-D temporal cluster permutation (per mode)
 # ------------------------------------------------------------------
+def mode_cluster_test(subject_data, threshold, n_permutations=1024, pval_threshold=0.05, seed=42,
+                      adjacency=None, n_jobs=1):
+    """TRFlearn one-sample cluster/TFCE test of ``(subjects, modes, times)`` against zero (as in MEGEYEDYN).
+
+    ``threshold`` is a TFCE dict or a cluster-forming p value. Lags are adjacent, modes
+    only through the sparse ``(modes, modes)`` ``adjacency`` (default: none), and the
+    FWE correction spans all modes x lags. Returns the ``(modes, times)`` significance
+    mask and, per mode, ``[(start, stop, p), ...]`` runs (``stop`` exclusive, ``p`` the
+    largest p inside the run).
+    """
+    subject_data = np.asarray(subject_data)
+    n_subjects, n_modes, n_times = subject_data.shape
+    if n_subjects < 2:
+        raise ValueError("mode_cluster_test needs at least 2 subjects")
+    if not isinstance(threshold, dict):
+        threshold = t_threshold(float(threshold), df=n_subjects - 1)
+    _, pvalues = cluster_1samp(
+        subject_data.transpose(0, 2, 1),
+        adjacency=mne.stats.combine_adjacency(
+            n_times, sparse.eye(n_modes, format="csr") if adjacency is None else adjacency),
+        threshold=threshold, n_permutations=n_permutations, seed=seed, n_jobs=n_jobs)
+    pvalues = pvalues.T
+    return pvalues < pval_threshold, [significant_runs(mode_p, pval_threshold) for mode_p in pvalues]
+
+
+def significant_runs(pvalues, pval_threshold=0.05):
+    """``[(start, stop_exclusive, max p), ...]`` for each contiguous run below threshold."""
+    significant = np.asarray(pvalues) < pval_threshold
+    edges = np.flatnonzero(np.diff(np.r_[False, significant, False]))
+    return [(start, stop, np.max(pvalues[start:stop])) for start, stop in zip(edges[::2], edges[1::2])]
+
+
 def temporal_cluster_test(data, t_thresh=None, n_permutations=1024,
                           pval_threshold=0.05, seed=42, return_clusters=False):
     """One-sample temporal cluster permutation test on a single mode curve.

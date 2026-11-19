@@ -12,6 +12,7 @@ sys.path.insert(0, HERE)                 # dynemo__utility_functions
 sys.path.insert(0, os.path.dirname(HERE))  # paths, load, setup, ...
 
 import numpy as np
+import shutil
 import paths
 from osl_dynamics.data import Data
 from osl_dynamics.models.dynemo import Config
@@ -21,6 +22,7 @@ from general_utility_functions import cprint, rprint, yprint, gprint
 import matplotlib.pyplot as plt
 import mne
 import dynemo__mixing_coefficients_utils as mc
+from training_utils import RestoreBestWeightsAfter, TrainingCheckpoint
 
 
 # Setup
@@ -31,6 +33,9 @@ exp_info = setup.exp_info()
 dynemo_object_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Object_Data")
 dynemo_trained_data_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Trained_Model")
 dynemo_plots_training_path = paths.dynemo_run_plots_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "Training")
+# Kept outside the trained-model folder so an unfinished checkpoint is never loaded as a trained model
+dynemo_checkpoint_path = paths.dynemo_run_save_path(n_modes, n_pca, n_embeddings, sequence_length, ch_picks, "DyNeMo_Training_Checkpoint")
+checkpoint_every_n_epochs = 5
 os.makedirs(dynemo_object_data_path, exist_ok=True)
 os.makedirs(dynemo_trained_data_path, exist_ok=True)
 data_object_file =  os.path.join(dynemo_object_data_path, "data.pkl")
@@ -121,9 +126,9 @@ config = Config(
     n_channels=n_pca, # 30
     sequence_length=sequence_length,
 
-    inference_n_units=128,
+    inference_n_units=64,
     inference_normalization="layer",
-    model_n_units=128,
+    model_n_units=64,
     model_normalization="layer",
 
     learn_alpha_temperature=True,
@@ -138,8 +143,8 @@ config = Config(
     n_kl_annealing_epochs=20,
 
     batch_size=128,
-    learning_rate=0.002,
-    n_epochs=80,
+    learning_rate=0.003,
+    n_epochs=40,
 )
 cprint("   >>>     Parámetros de DyNeMo configurados: ")
 print(config)
@@ -165,28 +170,41 @@ model_exists = (os.path.isdir(dynemo_trained_data_path)
 
 if force_retrain_model or not model_exists:
     cprint(f"   >>>     No existe el modelo entrenado o se activo force_retrain_model, iniciando entrenamiento...  ")
-    # Train the model for a short period on a small random subset of the data
-    cprint(f"   >>>     Buscando buena inicialización  ")
-    init_history = model.random_subset_initialization(
-        data,
-        n_epochs=5,
-        n_init=10,
-        take=0.25,
-    )
+    if force_retrain_model:
+        shutil.rmtree(dynemo_checkpoint_path, ignore_errors=True)
+
+    # Keep the lowest-loss weights, but only AFTER KL annealing finishes (it ignores the
+    # misleadingly low pre-annealing loss); checkpoints let an interrupted fit resume.
+    best_weights = RestoreBestWeightsAfter(start_epoch=config.n_kl_annealing_epochs)
+    checkpoint = TrainingCheckpoint(model, dynemo_checkpoint_path, checkpoint_every_n_epochs, best_weights)
+    initial_epoch = checkpoint.restore()
+
+    if initial_epoch is None:
+        # Train the model for a short period on a small random subset of the data
+        cprint(f"   >>>     Buscando buena inicialización  ")
+        init_history = model.random_subset_initialization(
+            data,
+            n_epochs=5,
+            n_init=10,
+            take=0.25,
+        )
+        checkpoint.save(0)
+        initial_epoch = 0
+    else:
+        cprint(f"   >>>     Reanudando entrenamiento desde checkpoint (época {initial_epoch}/{config.n_epochs}): {dynemo_checkpoint_path}  ")
 
     # After good initialization, we do the full training of the model.
-    # save_best_after keeps the lowest-loss weights, but only AFTER KL annealing
-    # finishes (so it ignores the misleadingly low pre-annealing loss).
     cprint(f"   >>>     Entrenando el modelo DyNeMo completo ...  ")
-    history = model.fit(data, save_best_after=config.n_kl_annealing_epochs)
+    model.fit(data, callbacks=[best_weights, checkpoint], initial_epoch=initial_epoch)
 
     # Save the trained model
     model.save(dynemo_trained_data_path)
+    shutil.rmtree(dynemo_checkpoint_path, ignore_errors=True)
     cprint(f"   >>>     Modelo entrenado guardado correctamente en: {dynemo_trained_data_path} ...  ")
 
     # Plot training loss
     plt.figure()
-    plt.plot(history["loss"])
+    plt.plot(checkpoint.losses)
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training loss")

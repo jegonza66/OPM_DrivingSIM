@@ -271,7 +271,7 @@ for subject_id in exp_info.subjects_ids:
         f.write(f"Forward file: {fwd_file}\n")
         f.write(f"Data covariance file: {data_cov_file}\n")
         f.write(f"LCMV file: {lcmv_file}\n")
-        f.write(f"Voxel data file: {voxel_data_file}\n")
+        f.write(f"Voxel data file: {voxel_data_file} (deleted after parcellation)\n")
         f.write(f"Voxel coords MNI file: {voxel_coords_file}\n")
         f.write(f"Parcellation file: {PARCELLATION_FILE}\n")
         f.write(f"Parcel npy: {parc_npy}\n")
@@ -285,5 +285,7 @@ for subject_id in exp_info.subjects_ids:
     del raw, raw_preproc, src, fwd, filters, noise_cov, data_cov
     del voxel_data, voxel_coords_mni, parcel_data
     gc.collect()
+    # The voxel time series (several GB) only feeds the parcellation; re-parcellating reruns the LCMV projection
+    os.remove(voxel_data_file)
 
 cprint("\nDYNEMO PREPROCESSING TERMINADO PARA TODOS LOS SUJETOS.")

@@ -310,6 +310,10 @@ def meg_type(subject_id, task, data_type='processed', preload=True):
     :param preload:
     :return:
     """
+    # Files of subjects from the previous dataset are named with DA1 regardless of the requested task
+    if subject_id in setup.exp_info().DA1_subjects:
+        task = 'DA1'
+
     if data_type == 'ICA':
         meg_data = ica_data(subject_id=subject_id, task=task, preload=preload)
     elif data_type == 'ICA_annot':

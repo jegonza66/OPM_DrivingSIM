@@ -253,54 +253,52 @@ def make_or_load_lcmv(raw, fwd, data_cov, noise_cov, rank, out_file, beamformer,
     return filters
 
 
-def make_raw_without_bad_annotations(raw):
-    """
-    OSL source_recon.apply_lcmv_beamformer excludes bad segments.
-    This function creates a continuous Raw object containing only samples
-    not rejected by annotations, so LCMV is applied to clean data only.
-    """
-    raw_meg = raw.copy().pick_types(meg=True, eeg=False, stim=False, exclude=[])
-
-    data, times = raw_meg.get_data(
-        reject_by_annotation="omit",
-        return_times=True,
-    )
-
-    info = raw_meg.info.copy()
-    raw_clean = mne.io.RawArray(data, info)
-
-    raw_clean.set_meas_date(raw.info["meas_date"])
-
-    return raw_clean, times
-
-
 def apply_lcmv_raw(raw, filters, out_npy, beamformer):
     """
-    Bibliography-aligned: apply LCMV once, no chunking.
-    Bad annotated samples are omitted before applying LCMV.
+    Apply LCMV to the samples not rejected by BAD annotations, in 20 s chunks
+    written to a memmap, so the full source time series is never held in RAM.
+    The beamformer is linear, so chunking gives the same result as one pass.
     """
     if os.path.exists(out_npy):
         cprint(f"Cargando voxel_data existente: {out_npy}")
-        return np.load(out_npy)
+        return np.load(out_npy, mmap_mode="r")
 
-    cprint("Aplicando LCMV al raw completo, sin chunks")
+    cprint("Aplicando LCMV al raw por bloques temporales")
 
-    raw_clean, kept_times = make_raw_without_bad_annotations(raw)
-
-    stc = beamformer.apply_lcmv_raw(
-        raw=raw_clean,
-        filters=filters,
-    )
-
-    voxel_data = stc.data.astype(np.float32)
+    picks = mne.pick_types(raw.info, meg=True, eeg=False, stim=False, exclude=[])
+    info = mne.pick_info(raw.info, picks, copy=True)
+    _, kept_times = raw.get_data(picks=picks[:1], reject_by_annotation="omit", return_times=True)
+    kept_indices = raw.time_as_index(kept_times, use_rounding=True)
+    if kept_indices.size == 0:
+        raise ValueError("No quedan muestras limpias después de las anotaciones BAD.")
 
     os.makedirs(os.path.dirname(out_npy), exist_ok=True)
-    np.save(out_npy, voxel_data)
+    temporary_file = f"{out_npy}.tmp"
+    voxel_data = np.lib.format.open_memmap(temporary_file, mode="w+", dtype=np.float32,
+                                           shape=(filters["weights"].shape[0], kept_indices.size))
+
+    # Fixed 20 s chunks cap RAM; contiguous clean runs are processed separately
+    chunk_samples = max(1, int(round(20 * raw.info["sfreq"])))
+    clean_runs = np.split(kept_indices, np.flatnonzero(np.diff(kept_indices) != 1) + 1)
+    output_start = 0
+    for clean_run in clean_runs:
+        for chunk_start in range(0, clean_run.size, chunk_samples):
+            chunk_indices = clean_run[chunk_start:chunk_start + chunk_samples]
+            data = raw.get_data(picks=picks, start=int(chunk_indices[0]), stop=int(chunk_indices[-1]) + 1,
+                                reject_by_annotation=None)
+            stc = beamformer.apply_lcmv_raw(raw=mne.io.RawArray(data, info, verbose=False), filters=filters, verbose=False)
+            output_stop = output_start + chunk_indices.size
+            voxel_data[:, output_start:output_stop] = stc.data
+            output_start = output_stop
+
+    voxel_data.flush()
+    del voxel_data
+    os.replace(temporary_file, out_npy)
 
     kept_times_file = out_npy.replace(".npy", "_kept_times.npy")
     np.save(kept_times_file, kept_times)
 
-    return voxel_data
+    return np.load(out_npy, mmap_mode="r")
 
 
 

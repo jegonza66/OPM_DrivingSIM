@@ -11,6 +11,7 @@ except NameError:
 sys.path.insert(0, HERE)                 # dynemo__utility_functions
 sys.path.insert(0, os.path.dirname(HERE))  # paths, load, setup, ...
 
+import gc
 from osl_dynamics.models import load
 import paths
 from osl_dynamics.data import Data
@@ -96,18 +97,35 @@ np.save(os.path.join(dynemo_infered_parameters_path, "covs.npy"), covs)
 alpha = modes.reweight_alphas(alpha, covs)
 pickle.dump(alpha, open(os.path.join(dynemo_infered_parameters_path, "alp_reweighted.pkl"), "wb"))
 
-# Calculate regression spectra for each mode and subject (will take a few minutes)
-f, psd, coh, w = spectral.regression_spectra(
-    data=trimmed_data,
-    alpha=alpha,
-    sampling_frequency=250,
-    frequency_range=[1, 45],
-    window_length=1000,
-    step_size=20,
-    n_sub_windows=8,
-    return_coef_int=True,
-    return_weights=True,
-)
+# Free the model and the TDE-PCA data before the spectra: each subject's regression peaks at many GB
+del prepared_data, model, data
+gc.collect()
+
+# Calculate regression spectra one subject at a time (same parameters as a single call, far less RAM)
+assert len(trimmed_data) == len(alpha) == len(exp_info.subjects_ids)
+session_spectra = []
+for subject_code, session_data, session_alpha in zip(exp_info.subjects_ids, trimmed_data, alpha):
+    cprint(f"   >>>     Calculating spectra for {subject_code}")
+    session_spectra.append(spectral.regression_spectra(
+        data=session_data,
+        alpha=session_alpha,
+        sampling_frequency=250,
+        frequency_range=[1, 45],
+        window_length=1000,
+        step_size=20,
+        n_sub_windows=8,
+        return_coef_int=True,
+        return_weights=True,
+        keepdims=True,
+        n_jobs=1,
+    ))
+f = session_spectra[0][0]
+psd = np.concatenate([result[1] for result in session_spectra], axis=0)
+coh = np.concatenate([result[2] for result in session_spectra], axis=0)
+# Session weights proportional to the number of samples, as regression_spectra returns for a list of sessions
+sample_counts = np.array([len(session) for session in trimmed_data])
+w = sample_counts / sample_counts.sum()
+del session_spectra
 
 # Check results
 cprint(f"f.shape: {f.shape}, -> debería ser 1D (p.ej. (45,))")

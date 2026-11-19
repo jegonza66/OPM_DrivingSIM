@@ -12,14 +12,15 @@ from mne.decoding import ReceptiveField
 from sklearn.model_selection import KFold
 from scipy import stats as stats
 import scipy.signal
-from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc, permutation_cluster_1samp_test
+from mne.stats import spatio_temporal_cluster_1samp_test, summarize_clusters_stc
 from mni_to_atlas import AtlasBrowser
 
 
 exp_info = setup.exp_info()
 
 
-DA_TRIGGER_LABELS = ('LL/1', 'LR/1', 'RL/4', 'RR/4')
+DA_TRIGGER_LABELS = ('LL/1', 'LR/1', 'RL/4', 'RR/4',  # DA2
+                     'LL', 'LR', 'RL', 'RR', 'UL', 'UR', 'DL', 'DR')  # DA1
 
 
 def get_da_stimulus_onsets(meg_data):
@@ -35,6 +36,31 @@ def get_da_stimulus_onsets(meg_data):
     return onsets, desc[sel][order]
 
 
+def get_button_onsets(raw, side, subject_id):
+    """Button press onsets (0-based seconds) for 'left' or 'right'.
+
+    DA2 has one channel per button (rising edges). DA1 has a single 'Button press'
+    channel where the pulse width codes the button: 100/200 ms = left (blue/yellow),
+    300/400 ms = right (green/red). Checked against the DA symbols: codes 1-2 follow
+    L/D symbols and 3-4 follow R/U. 1000 ms pulses (outside the task) and short
+    blips are not presses.
+    """
+    sfreq = raw.info['sfreq']
+    if subject_id not in exp_info.DA1_subjects:
+        channel = {'left': 'button/left/green', 'right': 'button/right/yellow'}[side]
+        button_data = raw.get_data(picks=channel)[0, :]
+        return np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0] / sfreq
+
+    pressed = (raw.get_data(picks='Button press')[0, :] > 1.5).astype(int)
+    rises = np.where(np.diff(pressed) == 1)[0] + 1
+    falls = np.where(np.diff(pressed) == -1)[0] + 1
+    falls = falls[falls > rises[0]] if len(rises) else falls
+    n = min(len(rises), len(falls))
+    rises, codes = rises[:n], np.round((falls[:n] - rises[:n]) / sfreq * 10)  # pulse width in units of 100 ms
+    side_codes = {'left': (1, 2), 'right': (3, 4)}[side]
+    return rises[np.isin(codes, side_codes)] / sfreq
+
+
 def get_experiment_phase_times(subject_id, meg_data):
     """CF / DA / Audio onsets and offsets in 0-based recording seconds.
 
@@ -48,9 +74,20 @@ def get_experiment_phase_times(subject_id, meg_data):
     -------
     dict : {'CF': (on, off), 'DA': (on, off), 'Audio': (on, off)}
         DA offset is last stimulus + exp_info.DA_duration. Offsets may exceed
-        the recording end.
+        the recording end. DA1 subjects have no Audio phase: (nan, nan).
     """
     import csv
+
+    triggers, _ = get_da_stimulus_onsets(meg_data)
+
+    # DA1: CF times from Driving Experiment info v0_1, relative to the 'drive' annotation
+    if subject_id in exp_info.DA1_subjects:
+        desc = np.asarray(meg_data.annotations.description)
+        drive = meg_data.annotations.onset[desc == 'drive'][0] - meg_data.first_time
+        times = exp_info.exp_times[subject_id]
+        return {'CF': (drive + times['cf_start'], drive + times['cf_end']),
+                'DA': (triggers[0], triggers[-1] + exp_info.DA_duration),
+                'Audio': (np.nan, np.nan)}
 
     def column(fname):
         with open(os.path.join(paths.bh_path, fname), 'r') as f:
@@ -64,7 +101,6 @@ def get_experiment_phase_times(subject_id, meg_data):
     audio_on, audio_off = column('AUDIO_EVENT_TIME_1.csv')
     da_stims = np.sort(column('DA_EVENT_TIME_1.csv'))
 
-    triggers, _ = get_da_stimulus_onsets(meg_data)
     if len(triggers) != len(da_stims):
         raise ValueError(f'Subject {subject_id}: {len(triggers)} DA triggers in raw vs '
                          f'{len(da_stims)} stimuli in DA_EVENT_TIME_1.csv')
@@ -354,12 +390,10 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['DAfull']
 
             elif 'left_but' == epoch_id:
-                # Left button from button/left/green channel (rising edge detection)
+                # Left button press onsets (DA2: button/left/green channel; DA1: decoded from 'Button press')
                 meg_params_full = {'data_type': 'processed'}
                 raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
-                button_data = raw_full.get_data(picks='button/left/green')[0, :]
-                crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
-                onset_times = crossings / raw_full.info['sfreq']
+                onset_times = get_button_onsets(raw_full, side='left', subject_id=subject.subject_id)
 
                 onset_description = ['left_but'] * len(onset_times)
                 task_duration = [0] * len(onset_times)
@@ -375,12 +409,10 @@ def define_events(subject, meg_data, epoch_id, epoch_keys=None):
                 epoch_keys = ['left_but']
 
             elif 'right_but' == epoch_id:
-                # Right button from button/right/yellow channel (rising edge detection)
+                # Right button press onsets (DA2: button/right/yellow channel; DA1: decoded from 'Button press')
                 meg_params_full = {'data_type': 'processed'}
                 raw_full = load.meg(subject_id=subject.subject_id, meg_params=meg_params_full)
-                button_data = raw_full.get_data(picks='button/right/yellow')[0, :]
-                crossings = np.where(np.diff((button_data > 0.5).astype(int)) == 1)[0]
-                onset_times = crossings / raw_full.info['sfreq']
+                onset_times = get_button_onsets(raw_full, side='right', subject_id=subject.subject_id)
 
                 onset_description = ['right_but'] * len(onset_times)
                 task_duration = [0] * len(onset_times)
@@ -621,23 +653,10 @@ def annotate_bad_intervals(meg_data, data_fname, data_type, sds, save_data=True)
 
     # 4. Create annotations for the "BAD" segments
     if bad_segments:
-        onsets = [seg[0]  - annot_data.first_time for seg in bad_segments]  # Start times
-        durations = [seg[1] for seg in bad_segments]  # Durations
-        descriptions = ['BAD'] * len(bad_segments)  # "BAD" label
-
-        annotations = mne.Annotations(onset=onsets,
-                                      duration=durations,
-                                      description=descriptions)
-
-        # Get original annotations and substract first time
-        orig_annotations = annot_data.annotations
-        orig_annotations.onset = orig_annotations.onset - annot_data.first_time
-
-        # 6. Add the annotations to the Raw object
-        if annot_data.annotations:  # Check if there are existing annotations
-            annot_data.set_annotations(orig_annotations + annotations)
-        else:
-            annot_data.set_annotations(annotations)
+        # Append in place: annotations here are stored with first_time included
+        annot_data.annotations.append(onset=[seg[0] + annot_data.first_time for seg in bad_segments],
+                                      duration=[seg[1] for seg in bad_segments],
+                                      description=['BAD'] * len(bad_segments))
 
     # 5. (Optional) Save the data with annotations
     if save_data:
@@ -924,6 +943,8 @@ def make_mtrf_input(input_arrays, var_name, subject, meg_data, bad_annotations_a
         feature_name = var_name.replace('_std', '').replace('_der', '')
         meg_params = {'data_type': 'processed'}
         raw = load.meg(subject_id=subject.subject_id, meg_params=meg_params)
+        # Channel names differ in case between datasets (DA1 'gas', DA2 'Gas')
+        feature_name = next(ch for ch in raw.ch_names if ch.lower() == feature_name.lower())
         input_array = raw.get_data(picks=feature_name)[0, :]
 
         if '_der' in var_name:
@@ -1243,6 +1264,32 @@ class _JointTRF:
         self.best_alpha_ = best_alpha
 
 
+def build_trf_inputs(subject, meg_data, features, meg_params, use_saved_data=True):
+    """Feature regressors {feature: 1-D array on meg_data's timeline}, zeroed in bad annotations (cached per subject)."""
+    subj_path = paths.save_path + f'TRF/{subject.subject_id}/'
+    fname_bad_annot = 'bad_annot_array.pkl'
+
+    if os.path.exists(subj_path + fname_bad_annot) and use_saved_data:
+        bad_annotations_array = load.var(subj_path + fname_bad_annot)
+        print('Loaded bad annotations array')
+    else:
+        print('Computing bad annotations array...')
+        bad_annotations_array = get_bad_annot_array(meg_data=meg_data, subj_path=subj_path, fname=fname_bad_annot)
+
+    input_arrays = {}
+    for feature in features:
+        feature_data, fname_var = load_input_array_feature(feature=feature, meg_params=meg_params, subj_path=subj_path, use_saved_data=use_saved_data)
+        if isinstance(feature_data, np.ndarray):
+            input_arrays[feature] = feature_data
+        else:
+            print(f'Computing input array for {feature}...')
+            input_arrays = make_mtrf_input(input_arrays=input_arrays, var_name=feature,
+                                           subject=subject, meg_data=meg_data,
+                                           bad_annotations_array=bad_annotations_array,
+                                           subj_path=subj_path, fname=fname_var)
+    return {feature: input_arrays[feature] for feature in features}
+
+
 def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None, all_chs_regions=['frontal', 'temporal', 'parietal', 'occipital'],
                 use_saved_data=True, save_data=False, trf_path=None, trf_fname=None):
 
@@ -1255,29 +1302,8 @@ def compute_trf(subject, meg_data, trf_params, meg_params, features, alpha=None,
 
     print(f"Computing TRF for {trf_params['input_features']}")
 
-    # Bad annotations filepath
-    subj_path = paths.save_path + f'TRF/{subject.subject_id}/'
-    fname_bad_annot = f'bad_annot_array.pkl'
-
-    if os.path.exists(subj_path + fname_bad_annot) and use_saved_data:
-        bad_annotations_array = load.var(subj_path + fname_bad_annot)
-        print(f'Loaded bad annotations array')
-    else:
-        print(f'Computing bad annotations array...')
-        bad_annotations_array = get_bad_annot_array(meg_data=meg_data, subj_path=subj_path, fname=fname_bad_annot)
-
-    input_arrays = {}
-    subj_path = paths.save_path + f'TRF/{subject.subject_id}/'
-    for feature in features:
-        feature_data, fname_var = load_input_array_feature(feature=feature, meg_params=meg_params, subj_path=subj_path, use_saved_data=use_saved_data)
-        if isinstance(feature_data, np.ndarray):
-            input_arrays[feature] = feature_data
-        else:
-            print(f'Computing input array for {feature}...')
-            input_arrays = make_mtrf_input(input_arrays=input_arrays, var_name=feature,
-                                           subject=subject, meg_data=meg_data,
-                                           bad_annotations_array=bad_annotations_array,
-                                           subj_path=subj_path, fname=fname_var)
+    input_arrays = build_trf_inputs(subject=subject, meg_data=meg_data, features=features, meg_params=meg_params,
+                                    use_saved_data=use_saved_data)
 
     # ------------------------------------------------------------------ #
     # JOINT FIT
@@ -1690,37 +1716,22 @@ def get_parcellation_adjacency(ch_names, surf_vol, subject='fsaverage', subjects
 
 
 def run_permutations_test(data, pval_threshold, t_thresh, adj_matrix=None, n_permutations=1024, seed=42):
+    """One-sample cluster / TFCE permutation test against zero, via TRFlearn (as in MEGEYEDYN).
 
-    # Clusters out type
-    if type(t_thresh) == dict:
-        out_type = 'indices'
-    else:
-        out_type = 'mask'
+    data : (n_subjects, n_times, n_space); adj_matrix: sparse (n_space, n_space) spatial adjacency
+    (times are adjacent lags). t_thresh: dict -> TFCE (per-point p), float -> cluster-forming t.
+    Returns the (n_times, n_space) significance mask and, for cluster mass, the significant cluster p values.
+    """
+    from trflearn.statistics import cluster_1samp
+
+    _, pvalues = cluster_1samp(data, adjacency=adj_matrix, threshold=t_thresh,
+                               n_permutations=n_permutations, seed=seed, n_jobs=4)
+    clusters_mask = pvalues < pval_threshold
 
     significant_pvalues = None
-
-    # Permutations cluster test (TFCE if t_thresh as dict)
-    t_tfce, clusters, p_tfce, H0 = permutation_cluster_1samp_test(X=data, threshold=t_thresh, n_permutations=n_permutations, adjacency=adj_matrix,
-                                                                  out_type=out_type, seed=seed, n_jobs=4)
-
-    # Make clusters mask
-    if type(t_thresh) == dict:
-        # If TFCE use p-vaues of voxels directly
-        p_tfce = p_tfce.reshape(data.shape[-2:])  # Reshape to data's shape
-        clusters_mask = p_tfce < pval_threshold
-
-    else:
-        # Get significant clusters
-        good_clusters_idx = np.where(p_tfce < pval_threshold)[0]
-        significant_clusters = [clusters[idx] for idx in good_clusters_idx]
-        significant_pvalues = [p_tfce[idx] for idx in good_clusters_idx]
-
-        # Reshape to data's shape by adding all clusters into one bool array
-        clusters_mask = np.zeros(data[0].shape)
-        if len(significant_clusters):
-            for significant_cluster in significant_clusters:
-                clusters_mask += significant_cluster
-        clusters_mask = clusters_mask.astype(bool)
+    if not isinstance(t_thresh, dict):
+        # cluster mass: every point of a cluster shares its p value
+        significant_pvalues = sorted(set(np.round(pvalues[clusters_mask], 12).tolist()))
 
     return clusters_mask, significant_pvalues
 
@@ -1762,3 +1773,101 @@ def evoked_to_parcellation_stc(evoked, parc, subject_code, subjects_dir, spacing
                              tmin=evoked.times[0],
                              tstep=1 / evoked.info['sfreq'])
     return stc, src_full
+
+def fit_trf_group(subjects, load_subject, trf_params, n_folds=5):
+    """Joint TRFlearn TRF per subject on the full zero-masked timeline, one regularization for the cohort.
+
+    Ported from the MEGEYEDYN project so both use the same TRF method.
+    load_subject(subject_id) -> (target Raw, {feature: 1-D regressor on its timeline}); subjects are loaded one at a
+    time. trf_params['regularization'] is a number (fixed, no search) or a TRFGroup strategy ('median', 'mean-curve')
+    that shares one value searched over trf_params['regularization_grid'].
+    Returns ({subject: {feature: kernel Evoked}}, {subject: {feature: n_events}}, shared value, {subject: own choice},
+    {subject: target SD per channel}); kernels are standardized, see kernel_units.
+    """
+    import gc
+    from trflearn import TRFData, TRFGroup
+
+    features = trf_params['features']
+    regularization = trf_params['regularization']
+    fixed = not isinstance(regularization, str)
+    search = (dict(fit_method='fit', regularization=float(regularization)) if fixed else
+              dict(regularization_grid=np.asarray(trf_params['regularization_grid'], dtype=float),
+                   regularization_strategy=regularization, keep_kernels_by_regularization=True, n_subjects=len(subjects)))
+    group = TRFGroup(features, default_window=get_feature_tmin_tmax('default', trf_params),
+                     feature_windows={feature: get_feature_tmin_tmax(feature, trf_params) for feature in features},
+                     # unstandardized impulses (per-event units); kernels in target SDs
+                     feature_preprocess=None, kernel_units='standardized', verbose='warning', **search)
+
+    infos, n_events = {}, {}
+    for subject_id in subjects:
+        print('\n' + '=' * 80 + f'\n>>> TRF subject: {subject_id}')
+        target, regressors = load_subject(subject_id)
+        n_events[subject_id] = {name: int(np.count_nonzero(values)) for name, values in regressors.items()}
+        print(f'>>> Events {subject_id}: {n_events[subject_id]}')
+        data = TRFData(features={name: np.asarray(values, dtype=float)[:, np.newaxis] for name, values in regressors.items()},
+                       y=target, sample_rate=int(round(target.info['sfreq'])), verbose='warning')
+        data.create_partitions(n_folds=n_folds)
+        (group.fit_subject if fixed else group.search_subject)(data, subject_id)
+        infos[subject_id] = target.info
+        del target, regressors, data
+        gc.collect()
+
+    if fixed:
+        shared = float(regularization)
+        own = {subject_id: shared for subject_id in subjects}
+    else:
+        shared = float(group.share_regularization())
+        own = dict(group.regularization_search_['chosen'])
+        print(f'>>> Per-subject regularization: {own}')
+    print(f'>>> Shared regularization ({regularization}): {shared}')
+
+    kernels, target_scales = {}, {}
+    for subject_id in subjects:
+        record = group.results(subject_id)
+        target_scales[subject_id] = np.ravel(record['scales']['target'])
+        info = mne.pick_info(infos[subject_id], mne.pick_channels(infos[subject_id].ch_names, record['ch_names'], ordered=True))
+        kernels[subject_id] = {
+            # coef_ is (n_channels, 1, n_delays) for these single-column features
+            feature: mne.EvokedArray(record['coef_'][feature][:, 0], info, tmin=record['delays'][feature][0] / info['sfreq'],
+                                     nave=n_folds, comment=feature, verbose=False)
+            for feature in features
+        }
+    return kernels, n_events, shared, own, target_scales
+
+
+def kernel_units(evoked, target_scale, units):
+    """A standardized kernel in 'standardized' or 'original' units (target units per event, as the impulses are unscaled)."""
+    evoked = evoked.copy()
+    if units == 'original':
+        evoked.data *= np.asarray(target_scale)[:, np.newaxis]
+    return evoked
+
+
+def cached_trf_group(subjects, load_subject, trf_params, save_path, overwrite=False):
+    """fit_trf_group with per-subject kernels in save_path/<subject>; reused only when every subject is there (as in MEGEYEDYN).
+
+    Returns ({subject: {feature: standardized kernel Evoked}}, {subject: {feature: n_events}}, {subject: target SD}).
+    """
+    features = trf_params['features']
+    files = {subject_id: {feature: os.path.join(save_path, subject_id, f'{feature}-ave.fif') for feature in features}
+             for subject_id in subjects}
+    info_files = {subject_id: os.path.join(save_path, subject_id, 'trf_info.npz') for subject_id in subjects}
+    if not overwrite and all(os.path.exists(f) for subject_id in subjects for f in [*files[subject_id].values(), info_files[subject_id]]):
+        kernels, n_events, target_scales = {}, {}, {}
+        for subject_id in subjects:
+            info = np.load(info_files[subject_id])
+            kernels[subject_id] = {feature: mne.read_evokeds(f, verbose=False)[0] for feature, f in files[subject_id].items()}
+            n_events[subject_id] = dict(zip(info['features'], info['n_events']))
+            target_scales[subject_id] = info['target_scale']
+        return kernels, n_events, target_scales
+
+    # one shared regularization, so the whole cohort is refitted together
+    kernels, n_events, shared, own, target_scales = fit_trf_group(subjects, load_subject, trf_params)
+    for subject_id in subjects:
+        os.makedirs(os.path.join(save_path, subject_id), exist_ok=True)
+        for feature, fname in files[subject_id].items():
+            kernels[subject_id][feature].save(fname, overwrite=True)
+        np.savez(info_files[subject_id], regularization=shared, own_regularization=own[subject_id],
+                 target_scale=target_scales[subject_id],
+                 features=list(n_events[subject_id]), n_events=list(n_events[subject_id].values()))
+    return kernels, n_events, target_scales

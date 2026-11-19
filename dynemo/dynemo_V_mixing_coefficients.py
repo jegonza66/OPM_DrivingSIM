@@ -86,6 +86,8 @@ for use_reweighted in (False, True):
         phases = functions_analysis.get_experiment_phase_times(subject_code, meg_data)
         phase_marks = {"CF onset": phases["CF"][0], "DA start": phases["DA"][0],
                        "Audio start": phases["Audio"][0], "CF end": phases["CF"][1]}
+        # DA1 has no Audio phase (NaN)
+        phase_marks = {name: t for name, t in phase_marks.items() if np.isfinite(t)}
         save_pair(a, np.arange(n_win) + 0.5, out_dir, subject_code, "full",
                   events=phase_marks, heat_alpha=a_heat)
 

@@ -356,16 +356,16 @@ def pick_chs(chs_id, info):
             elif id == 'R':
                 picks = [ch_name for ch_name, ch_type in zip(info.ch_names,  info.get_channel_types()) if (ch_type == 'mag' and ch_name[1] == 'R')]
 
-            # Subset from picked chanels
+            # Subset from picked chanels (DA2 names end in ' Z', DA1 names in '[Z]')
             elif id == 'z':
                 picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
-                         (ch_type == 'mag' and ch_name.endswith(' Z'))]
+                         (ch_type == 'mag' and ch_name.endswith((' Z', '[Z]')))]
             elif id == 'x':
                 picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
-                         (ch_type == 'mag' and ch_name.endswith(' X'))]
+                         (ch_type == 'mag' and ch_name.endswith((' X', '[X]')))]
             elif id == 'y':
                 picks = [ch_name for ch_name, ch_type in zip(info.ch_names, info.get_channel_types()) if
-                         (ch_type == 'mag' and ch_name.endswith(' Y'))]
+                         (ch_type == 'mag' and ch_name.endswith((' Y', '[Y]')))]
 
     return picks
 
@@ -451,3 +451,14 @@ def features_path_str(input_features):
                 parts.append(f'{k}: {v}')
         return '{' + ', '.join(parts) + '}'
     return str(input_features)
+
+
+def tkr_to_mni305_mm(subject, subjects_dir):
+    """
+    FreeSurfer surface RAS (tkr-RAS, mm) -> MNI305 (mm) transform, via mne.read_talxfm.
+    Source spaces and surfaces are in tkr-RAS; read_ras_mni_t alone maps scanner RAS and
+    misses the c_ras offset, which is non-zero for some subjects.
+    """
+    trans = mne.read_talxfm(subject, subjects_dir)
+    trans['trans'][:3, 3] *= 1000  # m -> mm
+    return trans

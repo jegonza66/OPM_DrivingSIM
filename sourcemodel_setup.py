@@ -7,7 +7,7 @@ import paths
 import load
 import setup
 import plot_general
-from mne.transforms import apply_trans, read_ras_mni_t
+from mne.transforms import apply_trans
 
 # Load experiment info
 exp_info = setup.exp_info()
@@ -21,6 +21,7 @@ surf_vol = 'parcellation'  # 'surface' | 'volume' | 'mixed' | 'parcellation' | '
 force_fsaverage = False
 spacing = 'ico4'
 pos = 10
+mindist = 5.0  # mm; sources closer than this to the inner skull are excluded (as in MEGEYEDYN and DyNeMo)
 depth = None
 parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
 
@@ -28,7 +29,7 @@ parc = 'aparc.a2009s'  # Parcellation atlas (used when surf_vol='parcellation')
 # Option A: Use a local .nii(.gz) file
 # vol_parc_path = os.path.join(paths.mri_path, 'atlases', 'atlas-Giles_nparc-38_space-MNI_res-8x8x8.nii.gz')
 # Option B: Use a standard atlas fetched via nilearn (e.g. 'aal', 'destrieux', 'harvard_oxford')
-vol_parc_atlas = os.path.join(paths.atlas_path, 'colin27_MNI_MarsAtlas.nii')  # MarsAtlas (Colin27/MNI); or 'aal' | 'destrieux' | 'harvard_oxford' | 'schaefer'
+vol_parc_atlas = 'aal3'  # 'aal3' (AAL3v2) | 'aal' (AAL SPM12) | 'destrieux' | 'harvard_oxford' | 'schaefer' | path to a .nii(.gz), e.g. os.path.join(paths.atlas_path, 'colin27_MNI_MarsAtlas.nii')
 
 meg_params = {'data_type': 'processed'}
 
@@ -156,7 +157,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         if subject_id != 'fsaverage':
             fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_volume_{spacing}_{int(pos)}-fwd.fif'
             # Compute
-            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
+            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem, mindist=mindist)
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
     elif surf_vol == 'surface':
@@ -174,7 +175,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         # Forward model
         if subject_id != 'fsaverage':
             fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_surface_{spacing}-fwd.fif'
-            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
+            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem, mindist=mindist)
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
     elif surf_vol == 'mixed':
@@ -209,7 +210,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
 
         # Forward model
         if subject_id != 'fsaverage':
-            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem)
+            fwd = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src, bem=bem, mindist=mindist)
             fname_fwd = sources_path_subject + f'/{subject_code}_{meg_params['data_type']}_chs{chs_id}_mixed_{spacing}_{int(pos)}-fwd.fif'
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 
@@ -273,7 +274,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
             try:
                 fwd_surf = mne.read_forward_solution(fname_fwd_surf)
             except:
-                fwd_surf = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src_surf, bem=bem)
+                fwd_surf = mne.make_forward_solution(meg_data.info, trans=trans_path, src=src_surf, bem=bem, mindist=mindist)
                 mne.write_forward_solution(fname_fwd_surf, fwd_surf, overwrite=True)
 
             # Create single-vertex labels at each parcellation centroid
@@ -296,8 +297,8 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         # are transformed to MNI152 so we can look up atlas parcel IDs:
         #
         #   surface-RAS  →  MNI305          per-subject, via FreeSurfer's
-        #       (tkRAS)     (Talairach)      talairach.xfm read by MNE's
-        #                                    read_ras_mni_t()
+        #       (tkRAS)     (Talairach)      talairach.xfm + c_ras offset
+        #                                    (mne.read_talxfm)
         #
         #   MNI305       →  MNI152           fixed published transform from
         #                                    FreeSurfer documentation (see
@@ -315,8 +316,13 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
             atlas_labels = None
         else:
             from nilearn import datasets as ni_datasets
+            # Pin AAL versions: nilearn's default changed from SPM12 (116 regions) to AAL3 (3v2)
             if vol_parc_atlas == 'aal':
-                atlas = ni_datasets.fetch_atlas_aal()
+                atlas = ni_datasets.fetch_atlas_aal(version='SPM12')
+                vol_parc_path = atlas['maps']
+                atlas_labels = atlas['labels']
+            elif vol_parc_atlas == 'aal3':
+                atlas = ni_datasets.fetch_atlas_aal(version='3v2')
                 vol_parc_path = atlas['maps']
                 atlas_labels = atlas['labels']
             elif vol_parc_atlas == 'destrieux':
@@ -367,12 +373,9 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
         inuse_mask = src_vol[0]['inuse'].astype(bool)
         src_rr = src_vol[0]['rr'][inuse_mask]  # (n_src, 3) metres, surface-RAS
 
-        # Step 1: surface-RAS → MNI305 (per-subject, from FreeSurfer's
-        #         talairach.xfm via MNE's read_ras_mni_t)
-        # NOTE: read_ras_mni_t returns a mm-based transform (same as the
-        #       xfm file). MNE's own vertex_to_mni converts to mm before
-        #       applying it. Source positions must be in mm here.
-        ras_mni_t = read_ras_mni_t(subject_code, subjects_dir)
+        # Step 1: surface-RAS → MNI305 (per-subject, talairach.xfm combined with the
+        #         tkr→scanner offset, as mne.read_talxfm). Source positions must be in mm here.
+        ras_mni_t = functions_general.tkr_to_mni305_mm(subject_code, subjects_dir)
         src_rr_mm = src_rr * 1000                          # m → mm
         src_mni305_mm = apply_trans(ras_mni_t, src_rr_mm)  # MNI305, mm
 
@@ -444,7 +447,7 @@ for subject_id in exp_info.subjects_ids + ['fsaverage']:
                            f'_vol_parcellation_{vol_parc_name}-fwd.fif')
 
             fwd = mne.make_forward_solution(
-                meg_data.info, trans=trans_path, src=src, bem=bem
+                meg_data.info, trans=trans_path, src=src, bem=bem, mindist=mindist
             )
             mne.write_forward_solution(fname_fwd, fwd, overwrite=True)
 

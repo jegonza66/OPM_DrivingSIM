@@ -1,6 +1,7 @@
 import setup
 import load
 import functions_preproc
+import functions_analysis
 import preprocess_audio
 
 
@@ -14,12 +15,21 @@ for subject_id in exp_info.subjects_ids:
     print(f'Processing subject {subject_id}')
 
     subject = setup.subject(subject_id=subject_id)
+    task = 'DA1' if subject_id in exp_info.DA1_subjects else 'DA2'
 
     # Load MEG
-    meg_data = load.meg(subject_id=subject_id, meg_params=meg_params)
+    meg_data = load.meg(subject_id=subject_id, meg_params=meg_params, task=task)
 
     # ---------------- Add experiment end annotation ---------------- #
-    meg_data = functions_preproc.exp_end_crop(meg_data=meg_data)
+    if task == 'DA1':
+        # DA1 has no audio phase and gas/brake keep moving after the DA: crop 60 s after the last DA symbol ends
+        da_onsets, _ = functions_analysis.get_da_stimulus_onsets(meg_data)
+        meg_data.crop(tmax=min(da_onsets[-1] + exp_info.DA_duration + 60, meg_data.times[-1]))
+        print(f'MEG data cropped to {meg_data.times[-1]:.2f} seconds')
+        # DA1 ICA files lost the pipeline's bad segments; recover them where available
+        meg_data = functions_preproc.add_pipeline_bad_segments(meg_data=meg_data, subject_id=subject_id, task=task)
+    else:
+        meg_data = functions_preproc.exp_end_crop(meg_data=meg_data)
 
     stim_data = meg_data.copy().pick('stim')
 
@@ -61,7 +71,9 @@ for subject_id in exp_info.subjects_ids:
     meg_data = functions_preproc.add_et_channels(subject_id=subject_id, meg_data=meg_data, et_channels_meg=et_channels_meg, exp_info=exp_info)
 
     # ---------------- Extract and sync audio envelope from video ----------------#
-    meg_data, sync_info = preprocess_audio.extract_and_sync_audio(subject_id=subject_id, meg_data=meg_data)
+    # DA1 has no Audio channel nor screen recording video
+    if task == 'DA2':
+        meg_data, sync_info = preprocess_audio.extract_and_sync_audio(subject_id=subject_id, meg_data=meg_data)
 
     # ---------------- Save preprocessed data ----------------#
-    functions_preproc.save_data(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task='DA2')
+    functions_preproc.save_data(meg_data=meg_data, subject_id=subject_id, fixations=fixations, saccades=saccades, pursuits=pursuits, task=task)

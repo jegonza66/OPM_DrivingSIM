@@ -15,6 +15,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -85,6 +86,51 @@ def main():
     assert not np.array_equal(shifted[0], seq[0])
     # few subjects per sample -> NaN
     assert np.isnan(phase._group_modal_share(stacked[:3], 4)).all()
+
+    # paired tests: subjects without Audio (DA1) are out of the Friedman but in CF vs DA
+    rng = np.random.default_rng(1)
+    rows = [{"subject": f"s{i}", "phase": p, "entropy": rng.random()}
+            for i in range(8) for p in phase.PHASES if not (i >= 5 and p == "Audio")]
+    wide, _, pair_p, pair_n = phase._paired_tests(pd.DataFrame(rows), "entropy")
+    assert pair_n["friedman"] == 5 and pair_n[("CF", "DA")] == 8 and pair_n[("CF", "Audio")] == 5
+    assert wide.shape == (8, 3) and wide["Audio"].isna().sum() == 3
+
+    # mode_cluster_test (TRFlearn, joint over modes x lags): effect injected in mode 0 only
+    trf = rng.normal(size=(12, 3, 50)) * 0.5
+    trf[:, 0, 20:30] += 2.0
+    sig, runs = mc.mode_cluster_test(trf, {"start": 0.0, "step": 0.2}, n_permutations=256)
+    assert sig.shape == (3, 50) and sig[0, 22:28].all() and not sig[1:].any()
+    assert all(20 <= start and stop <= 31 for start, stop, _ in runs[0])
+    assert mc.significant_runs(np.array([0.5, 0.01, 0.02, 0.5, 0.03])) == [(1, 3, 0.02), (4, 5, 0.03)]
+
+    # TRF group fit (TRFlearn, shared ridge) recovers a known kernel; cache reloads it; permutation test finds it
+    import tempfile
+    import mne
+    import functions_analysis
+    sfreq, n_times, true_lag = 100, 6000, 10
+    params = {'features': ['ev'], 'regularization': 'median', 'regularization_grid': np.logspace(-3, 1, 3),
+              'tmin': {'default': -0.2}, 'tmax': {'default': 0.4}}
+
+    def load_synthetic(subject_id):
+        r = np.random.default_rng(int(subject_id))
+        events = np.zeros(n_times)
+        events[r.choice(np.arange(50, n_times - 50), 120, replace=False)] = 1
+        y = r.normal(size=(2, n_times)) * 0.5
+        y[0] += np.roll(events, true_lag) * 3  # only ch1 responds
+        info = mne.create_info(['ch1', 'ch2'], sfreq, 'misc')
+        return mne.io.RawArray(y, info, verbose=False), {'ev': events}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        subs = [str(i) for i in range(4)]
+        kernels, n_events, scales = functions_analysis.cached_trf_group(subs, load_synthetic, params, tmp)
+        again, _, _ = functions_analysis.cached_trf_group(subs, None, params, tmp)  # cached: load_subject unused
+    kernel = functions_analysis.kernel_units(kernels['0']['ev'], scales['0'], 'original')
+    assert n_events['0']['ev'] == 120 and np.allclose(again['0']['ev'].data, kernels['0']['ev'].data)
+    assert np.argmax(kernel.data[0]) == np.argmin(np.abs(kernel.times - true_lag / sfreq))
+    assert np.abs(kernel.data[0]).max() > 5 * np.abs(kernel.data[1]).max()  # ch1 responds, ch2 is noise
+    data = np.stack([kernels[s]['ev'].data.T for s in subs] * 3)  # (subjects, times, channels)
+    mask, _ = functions_analysis.run_permutations_test(data, 0.05, {'start': 0, 'step': 0.2}, n_permutations=256)
+    assert mask[np.argmin(np.abs(kernel.times - true_lag / sfreq)), 0]
 
     print("dynemo self-check OK")
 

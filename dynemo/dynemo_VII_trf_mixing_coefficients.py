@@ -15,8 +15,9 @@ statistics are 1-D cluster permutation tests over the TRF time axis.
 Pipeline (per subject):
     alpha (n_time, n_modes) -> continuous 250 Hz mode "raw" (misc channels)
     -> build feature regressors on the same timeline
-    -> ridge TRF (mne ReceptiveField via functions_analysis.fit_mtrf, chs_id='misc')
-    -> per-mode TRF EvokedArray
+    -> joint TRFlearn TRF on standardized modes (functions_analysis.fit_trf_group),
+       one ridge regularization shared by all subjects (as in MEGEYEDYN)
+    -> per-mode TRF EvokedArray, in standardized and original units
 Then grand-average across subjects, plot, and run per-mode permutation stats.
 """
 
@@ -63,8 +64,8 @@ use_reweighted_alpha = True   # True: normalised/reweighted alpha, False: raw al
 from dynemo_config import (n_modes as N_MODES, n_pca as N_PCA, n_embeddings as N_EMBEDDINGS,
                            sequence_length as SEQUENCE_LENGTH, ch_picks as CH_PICKS)
 
-#----- Statistics (1-D temporal cluster permutations, per mode) -----#
-run_permutations = True
+#----- Statistics (TRFlearn cluster/TFCE test; FWE over all modes x lags, as in MEGEYEDYN) -----#
+run_permutations = False
 pval_threshold = 0.05
 # dict -> TFCE; float -> two-tailed p for a fixed cluster-forming t threshold
 t_thresh = {"start": 0.0, "step": 0.2}
@@ -78,25 +79,33 @@ error_band = 'sem'
 # input_features: same identifiers as mtrf.py / define_events.
 # Value None = plain feature. (Secondary / phase-tagged variants supported via
 # functions_analysis.expand_features, e.g. 'fix': ['on_mirror'].)
+# Same method as MEGEYEDYN (functions_analysis.fit_trf_group): one joint TRFlearn
+# model per subject, fit on standardized modes, with ONE regularization shared by
+# all subjects (median of each subject's R²-best), so kernels are shrunk alike.
 trf_params = {
     'input_features': {
         'fix': None,
         'sac': None,
-        'audio_env_std': None,
+        # 'audio_env_std' dropped: DA1 has no audio, and the shared-regularization fit needs the same features for all
         'left_but': None,
         'right_but': None,
         'Steering_std_der': None,
         'Gas_std_der': None,
         'Brake_std_der': None
     },
-    'standarize': False,  # keep alpha units so collapsed modes stay visibly flat
-    'alpha': [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1000],   # ridge; list -> CV
+    # unstandardized impulses: per-sample variance ~ event rate (1e-4 for rare events).
+    # Grid extended below MEGEYEDYN's 1e-6: several DA1 subjects chose the 1e-6 edge.
+    'regularization': 'median',
+    'regularization_grid': np.logspace(-9, 3, 13),
     # Per-feature windows (seconds). dict with 'default' + per-feature overrides.
-    'tmin': {'default': -2, 'fix': -1, 'sac': -1, 'audio_env_std': -0.2},
-    'tmax': {'default': 2, 'fix': 1, 'sac': 1, 'audio_env_std': 0.5},
+    'tmin': {'default': -2, 'fix': -1, 'sac': -1},
+    'tmax': {'default': 2, 'fix': 1, 'sac': 1},
     'plot_margin': 0.05,   # seconds cropped from each side when plotting
-    'fit_power': False,    # mode time courses are amplitudes already
 }
+# Same fit in both; 'original' rescales each subject's kernels by its mode SDs
+kernel_units_list = ['standardized', 'original']
+units_label = {'standardized': 'TRF weight (mode SD per event)',
+               'original': 'TRF weight (mixing coefficient per event)'}
 
 #----- Paths -----#
 infered_parameters_path = paths.dynemo_run_save_path(N_MODES, N_PCA, N_EMBEDDINGS, SEQUENCE_LENGTH, CH_PICKS, "DyNeMo_Infered_Parameters")
@@ -120,11 +129,11 @@ mode_colors = [f"C{i}" for i in range(10)]
 # ============================================================
 def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
                    clusters=None, subject_data=None, band=None,
-                   save_fig=False, fig_path=None, fname=None):
+                   save_fig=False, fig_path=None, fname=None, ylabel="TRF weight (a.u.)"):
     """Line plot of the per-mode TRF (one line per mode).
 
     `clusters[mode]` is the `(start, stop, pvalue)` list from
-    mc.temporal_cluster_test; significant runs are drawn as coloured bars above
+    mc.mode_cluster_test; significant runs are drawn as coloured bars above
     the traces, one row per mode, labelled with stars and the max cluster p.
 
     If `subject_data` (n_subjects, n_modes, n_times) and `band` ('sem'/'std')
@@ -168,7 +177,7 @@ def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
         ]
         mc.draw_significance_bars(ax, times, clipped, colors)
     ax.set_xlabel(f"Time from {feature} (s)")
-    ax.set_ylabel("TRF weight (a.u.)")
+    ax.set_ylabel(ylabel)
     if title:
         ax.set_title(title)
     ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
@@ -182,163 +191,101 @@ def _plot_mode_trf(evoked, feature, trf_params, colors, title=None,
 
 
 # ============================================================
-# COMPUTE TRF PER SUBJECT
+# COMPUTE TRF (one joint model per subject, shared regularization)
 # ============================================================
 alp = mc.load_alpha(use_reweighted=use_reweighted_alpha,
                     infered_parameters_path=infered_parameters_path)
 
 features = functions_analysis.expand_features(trf_params['input_features'])
-feature_evokeds = {feature: [] for feature in features}
-feature_events = {feature: 0 for feature in features}
+trf_params['features'] = features
 
-for sub_idx, subject_id in enumerate(exp_info.subjects_ids):
+for subject_id in exp_info.subjects_ids[len(alp):]:
+    rprint(f">>> No hay alpha para {subject_id}, lo salto.")
+subjects = exp_info.subjects_ids[:len(alp)]
 
-    if sub_idx >= len(alp):
-        rprint(f">>> No hay alpha para {subject_id}, lo salto.")
-        continue
 
-    cprint("\n" + "=" * 80)
-    cprint(f">>> Sujeto: {subject_id}")
-    cprint("=" * 80)
-
+def load_subject(subject_id):
+    """Mode "raw" (misc channels, 250 Hz) and its gap-masked feature regressors."""
     subject = setup.subject(subject_id=subject_id)
-
-    # Build the continuous mode "raw" (misc channels) on the 250 Hz timeline
     mode_raw, valid_mask, mode_times = mc.build_mode_raw(
-        subject_code=subject_id, alpha_i=alp[sub_idx], ch_picks=CH_PICKS,
+        subject_code=subject_id, alpha_i=alp[exp_info.subjects_ids.index(subject_id)], ch_picks=CH_PICKS,
         n_pca=N_PCA, n_embeddings=N_EMBEDDINGS, sequence_length=SEQUENCE_LENGTH)
+    return mode_raw, {feature: mc.make_mode_trf_input(feature=feature, subject=subject, mode_times=mode_times,
+                                                      valid_mask=valid_mask)
+                      for feature in features}
 
-    # Build feature regressors on the same timeline
-    input_arrays = {}
-    for feature in features:
-        input_arrays[feature] = mc.make_mode_trf_input(
-            feature=feature, subject=subject, mode_times=mode_times,
-            valid_mask=valid_mask)
-    # impulse regressors are 1 at each surviving (unmasked) event
-    subject_events = {f: int(input_arrays[f].sum()) for f in features
-                      if not mc._is_continuous(f)}
 
-    # JOINT FIT: fit ALL features together in ONE model so the modes' responses
-    # to different features are mutually deconvolved. Fitting features separately
-    # (e.g. grouped by lag window) breaks that: variance shared between features
-    # in different models leaks into their TRFs. To keep per-feature lag windows
-    # AND a single joint deconvolution, fit over a global window = union of all
-    # per-feature windows, then crop each feature's coefficients to its own window.
-    feature_list = list(features)
-    model_input = np.array([input_arrays[f] for f in feature_list]).T  # (n_times, n_feat)
-    global_tmin = min(functions_analysis.get_feature_tmin_tmax(f, trf_params)[0] for f in feature_list)
-    global_tmax = max(functions_analysis.get_feature_tmin_tmax(f, trf_params)[1] for f in feature_list)
-    sfreq = mode_raw.info['sfreq']
-    global_d0 = int(np.round(global_tmin * sfreq))  # first delay of the joint coef axis
-
-    cprint(f">>> Ajustando TRF (modos) global tmin={global_tmin}, tmax={global_tmax} "
-           f"para {len(feature_list)} features: {feature_list}")
-    joint_rf = functions_analysis.fit_mtrf(
-        meg_data=mode_raw, tmin=global_tmin, tmax=global_tmax,
-        alpha=trf_params['alpha'], fit_power=trf_params['fit_power'],
-        model_input=model_input, chs_id='misc',
-        standarize=trf_params['standarize'], n_jobs=4)
-    joint_best_alpha = functions_analysis.extract_best_alpha(joint_rf)
-
-    # Slice + crop each feature's coefficients back to its own window. Each
-    # feature becomes its own entry (col=0), but all come from the same joint model.
-    rf_results = []
-    for feat_idx, feature in enumerate(feature_list):
-        feat_tmin, feat_tmax = functions_analysis.get_feature_tmin_tmax(feature, trf_params)
-        # ReceptiveField lag k -> delay global_d0 + k; same np.round convention
-        # aligns the crop with a standalone ReceptiveField(feat_tmin, feat_tmax).
-        i0 = int(np.round(feat_tmin * sfreq)) - global_d0
-        i1 = int(np.round(feat_tmax * sfreq)) - global_d0  # inclusive
-        coef = joint_rf.coef_[:, feat_idx, i0:i1 + 1]                  # (n_modes, n_lags_feat)
-        feat_rf = functions_analysis._JointTRF(coef[:, np.newaxis, :],  # (n_modes, 1, n_lags_feat)
-                                               best_alpha=joint_best_alpha)
-        rf_results.append({'rf': feat_rf, 'features': [feature],
-                           'tmin': feat_tmin, 'tmax': feat_tmax,
-                           'best_alpha': joint_best_alpha})
-
-    # Map each feature to its group RF + column index
-    feature_map = {}
-    for group in rf_results:
-        for col, feat in enumerate(group['features']):
-            feature_map[feat] = {'rf': group['rf'], 'col': col,
-                                 'tmin': group['tmin'], 'tmax': group['tmax']}
-
-    # Build a per-mode TRF EvokedArray for each feature
-    for feature in features:
-        fmap = feature_map[feature]
-        # ReceptiveField.coef_ shape: (n_modes, n_features, n_delays)
-        trf = fmap['rf'].coef_[:, fmap['col'], :]   # (n_modes, n_delays)
-        evoked = mne.EvokedArray(data=trf, info=mode_raw.info,
-                                 tmin=fmap['tmin'], baseline=(fmap['tmin'], fmap['tmax']))
-        feature_evokeds[feature].append(evoked)
-        feature_events[feature] += subject_events.get(feature, 0)
-
-        if plot_individuals:
-            title = f"{subject_id} - {feature}"
-            if feature in subject_events:
-                title += f" ({subject_events[feature]} events)"
-            _plot_mode_trf(evoked, feature, trf_params, mode_colors,
-                           title=title,
-                           save_fig=save_fig,
-                           fig_path=os.path.join(fig_path, subject_id),
-                           fname=f"{feature}")
+kernels, n_events, shared, own, target_scales = functions_analysis.fit_trf_group(subjects, load_subject, trf_params)
+np.savez(os.path.join(save_path, "selected_regularization.npz"),
+         subjects=np.asarray(subjects),
+         own=np.asarray([own[s] for s in subjects], dtype=float),
+         shared=shared,
+         target_scales=np.stack([target_scales[s] for s in subjects]))
+# impulse regressors are 1 at each surviving (unmasked) event
+feature_events = {feature: sum(n_events[s][feature] for s in subjects)
+                  for feature in features if not mc._is_continuous(feature)}
 
 
 # ============================================================
-# GRAND AVERAGE + STATS + PLOTS
+# GRAND AVERAGE + STATS + PLOTS (per kernel units)
 # ============================================================
 n_modes = alp[0].shape[1]
 
-for feature in features:
-    if len(feature_evokeds[feature]) == 0:
-        yprint(f">>> Sin datos para {feature}, lo salto.")
-        continue
+for units in kernel_units_list:
+    units_fig_path = os.path.join(fig_path, units)
+    units_save_path = os.path.join(save_path, units)
+    os.makedirs(units_fig_path, exist_ok=True)
+    os.makedirs(units_save_path, exist_ok=True)
+    feature_evokeds = {feature: [functions_analysis.kernel_units(kernels[s][feature], target_scales[s], units)
+                                 for s in subjects]
+                       for feature in features}
 
-    grand_avg = mne.grand_average(feature_evokeds[feature], interpolate_bads=True)
+    if plot_individuals:
+        for feature in features:
+            for subject_id, evoked in zip(subjects, feature_evokeds[feature]):
+                title = f"{subject_id} - {feature}"
+                if feature in feature_events:
+                    title += f" ({n_events[subject_id][feature]} events)"
+                _plot_mode_trf(evoked, feature, trf_params, mode_colors, title=title,
+                               save_fig=save_fig, fig_path=os.path.join(units_fig_path, subject_id),
+                               fname=f"{feature}", ylabel=units_label[units])
 
-    # Per-subject data (n_subjects, n_modes, n_times) for variability band + stats
-    subject_data = np.array([ev.data for ev in feature_evokeds[feature]])
+    for feature in features:
+        grand_avg = mne.grand_average(feature_evokeds[feature], interpolate_bads=True)
 
-    # Per-mode permutation stats over the TRF time axis
-    sig_masks = None
-    clusters = None
-    if run_permutations:
-        sig_masks = {}
-        clusters = []
-        for m in range(n_modes):
-            # (n_subjects, n_times) for this mode
-            data = subject_data[:, m, :]
-            sig_masks[m], found = mc.temporal_cluster_test(
-                data=data, t_thresh=t_thresh, n_permutations=n_permutations,
-                pval_threshold=pval_threshold, return_clusters=True)
-            clusters.append(found)
+        # Per-subject data (n_subjects, n_modes, n_times) for variability band + stats
+        subject_data = np.array([ev.data for ev in feature_evokeds[feature]])
 
-    title = f"Grand average - {feature} (N={len(feature_evokeds[feature])} subjects"
-    if not mc._is_continuous(feature):
-        title += f", {feature_events[feature]} events"
-    _plot_mode_trf(grand_avg, feature, trf_params, mode_colors,
-                   title=title + ")",
-                   clusters=clusters, subject_data=subject_data, band=error_band,
-                   save_fig=save_fig, fig_path=fig_path, fname=f"GA_{feature}")
+        # Joint cluster/TFCE test over modes x TRF lags (TRFlearn, FWE across all modes)
+        sig_masks = None
+        clusters = None
+        if run_permutations and len(subject_data) >= 2:
+            sig_array, clusters = mc.mode_cluster_test(subject_data, t_thresh, n_permutations=n_permutations,
+                                                       pval_threshold=pval_threshold)
+            sig_masks = dict(enumerate(sig_array))
 
-    # Persist the TRF results so they can be reloaded without recomputing.
-    if save_fig:  # reuse the same "write outputs" switch used for figures
-        # Grand-average TRF as an MNE Evoked (-ave.fif)
-        grand_avg.save(os.path.join(save_path, f"GA_{feature}-ave.fif"),
-                       overwrite=True)
-        # Per-subject curves, time axis and significance mask as arrays
-        sig_array = None
-        if sig_masks is not None:
-            sig_array = np.array([sig_masks[m] for m in range(n_modes)])  # (n_modes, n_times)
-        np.savez(
-            os.path.join(save_path, f"{feature}_trf.npz"),
-            subject_data=subject_data,        # (n_subjects, n_modes, n_times)
-            times=grand_avg.times,
-            grand_avg=grand_avg.data,         # (n_modes, n_times)
-            sig_masks=sig_array if sig_array is not None else np.array([]),
-        )
-        cprint(f">>> Resultados TRF de '{feature}' guardados en {save_path}")
+        title = f"Grand average - {feature} (N={len(subject_data)} subjects"
+        if feature in feature_events:
+            title += f", {feature_events[feature]} events"
+        _plot_mode_trf(grand_avg, feature, trf_params, mode_colors,
+                       title=title + ")",
+                       clusters=clusters, subject_data=subject_data, band=error_band,
+                       save_fig=save_fig, fig_path=units_fig_path, fname=f"GA_{feature}",
+                       ylabel=units_label[units])
+
+        # Persist the TRF results so they can be reloaded without recomputing.
+        if save_fig:  # reuse the same "write outputs" switch used for figures
+            grand_avg.save(os.path.join(units_save_path, f"GA_{feature}-ave.fif"), overwrite=True)
+            sig_array = None
+            if sig_masks is not None:
+                sig_array = np.array([sig_masks[m] for m in range(n_modes)])  # (n_modes, n_times)
+            np.savez(
+                os.path.join(units_save_path, f"{feature}_trf.npz"),
+                subject_data=subject_data,        # (n_subjects, n_modes, n_times)
+                times=grand_avg.times,
+                grand_avg=grand_avg.data,         # (n_modes, n_times)
+                sig_masks=sig_array if sig_array is not None else np.array([]),
+            )
+            cprint(f">>> Resultados TRF de '{feature}' ({units}) guardados en {units_save_path}")
 
 cprint(">>> TRF de coeficientes de mezcla terminado.")
-
-

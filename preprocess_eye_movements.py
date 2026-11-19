@@ -22,7 +22,7 @@ meg_params = {'chs_id': 'mag',
               'band_id': None,
               'filter_sensors': True,
               'filter_method': 'iir',
-              'data_type': 'ICA_annot',  # 'raw', 'ICA', 'processed', 'tsss'
+              'data_type': 'processed',  # 'raw', 'ICA', 'processed', 'tsss'
               }
 
 

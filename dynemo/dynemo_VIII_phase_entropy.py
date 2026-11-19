@@ -61,7 +61,7 @@ use_reweighted_alpha = True
 WINDOW_SECONDS = 1.0
 PHASES = ["CF", "DA", "Audio"]
 ALIGNED_PHASE = "Audio"        # the one phase with a stimulus shared across subjects
-MIN_SUBJECTS_PER_WINDOW = 5    # for the inter-subject measures (7 subjects in total)
+MIN_SUBJECTS_PER_WINDOW = 5    # for the inter-subject measures (Audio: 7 DA2 subjects; DA1 has no Audio)
 N_SURROGATES = 1000
 RANDOM_STATE = 42
 
@@ -148,12 +148,21 @@ def _subject_phase_data(subject_code, alpha_i):
 
 
 def _paired_tests(summary, value):
-    """Friedman across phases + pairwise Wilcoxon (Holm) on subjects with all phases."""
-    wide = summary.pivot(index="subject", columns="phase", values=value)[PHASES].dropna()
-    friedman_p = stats.friedmanchisquare(*[wide[p] for p in PHASES]).pvalue
+    """Friedman across phases on subjects with all phases + pairwise Wilcoxon (Holm) on
+    every subject with both phases of the pair (DA1 has no Audio, so it joins CF vs DA only).
+
+    Returns the subject x phase table (NaN where a phase is missing), the Friedman p,
+    {pair: Holm p} and {pair: n subjects} (key 'friedman' for the complete cases).
+    """
+    wide = summary.pivot(index="subject", columns="phase", values=value).reindex(columns=PHASES)
+    complete = wide.dropna()
+    friedman_p = stats.friedmanchisquare(*[complete[p] for p in PHASES]).pvalue
     pairs = [(a, b) for i, a in enumerate(PHASES) for b in PHASES[i + 1:]]
-    raw = [stats.wilcoxon(wide[a], wide[b]).pvalue for a, b in pairs]
-    return wide, friedman_p, dict(zip(pairs, _holm(raw)))
+    both = {pair: wide[list(pair)].dropna() for pair in pairs}
+    raw = [stats.wilcoxon(both[(a, b)][a], both[(a, b)][b]).pvalue for a, b in pairs]
+    n = {pair: len(both[pair]) for pair in pairs}
+    n["friedman"] = len(complete)
+    return wide, friedman_p, dict(zip(pairs, _holm(raw))), n
 
 
 def _jsd_per_window(profiles):
@@ -207,11 +216,11 @@ def _shift_each(labels, rng):
 
 
 ################ PLOTS ################
-def _plot_paired(wide, friedman_p, pair_p, output_file):
+def _plot_paired(wide, friedman_p, pair_p, pair_n, output_file):
     fig, ax = plt.subplots(figsize=(6, 5))
     x = np.arange(len(PHASES))
     for _, row in wide.iterrows():
-        ax.plot(x, row[PHASES], color="gray", alpha=0.4, linewidth=1)
+        ax.plot(x, row[PHASES], color="gray", alpha=0.4, linewidth=1, marker=".")
     ax.plot(x, wide[PHASES].mean(), color="tab:red", linewidth=2.5, marker="o")
     ax.set_xticks(x)
     ax.set_xticklabels(PHASES)
@@ -219,16 +228,16 @@ def _plot_paired(wide, friedman_p, pair_p, output_file):
     ax.set_ylabel("Window-profile entropy (bits)")
 
     values = wide[PHASES].to_numpy()
-    top, span = values.max(), values.max() - values.min()
+    top, span = np.nanmax(values), np.nanmax(values) - np.nanmin(values)
     for level, ((a, b), p) in enumerate(pair_p.items()):
         y = top + span * (0.08 + 0.14 * level)
         i, j = PHASES.index(a), PHASES.index(b)
         ax.plot([i, i, j, j], [y, y + 0.02 * span, y + 0.02 * span, y],
                 color="black", linewidth=1)
-        ax.text((i + j) / 2, y + 0.03 * span, f"{mc.stars(p)} p={p:.2g}",
+        ax.text((i + j) / 2, y + 0.03 * span, f"{mc.stars(p)} p={p:.2g} (N={pair_n[(a, b)]})",
                 ha="center", va="bottom", fontsize="small")
     ax.set_ylim(top=top + span * (0.08 + 0.14 * len(pair_p) + 0.1))
-    ax.set_title(f"Intra-subject entropy (N={len(wide)}), Friedman p={friedman_p:.2g}",
+    ax.set_title(f"Intra-subject entropy, Friedman (N={pair_n['friedman']}) p={friedman_p:.2g}",
                  fontsize="medium")
     fig.tight_layout()
     mc.save_figure(fig, output_file)
@@ -243,10 +252,11 @@ def _plot_profiles(phase_profiles, mode_p, ylabel, title, output_file):
     width = 0.8 / len(PHASES)
     for i, phase in enumerate(PHASES):
         values = phase_profiles[phase]
-        sem = values.std(axis=0, ddof=1) / np.sqrt(len(values))
-        ax.bar(modes + (i - (len(PHASES) - 1) / 2) * width, values.mean(axis=0), width,
-               yerr=sem, capsize=3, label=phase, color=phase_colors[phase], alpha=0.85)
-    top = max(v.mean(axis=0).max() for v in phase_profiles.values())
+        n_valid = np.sum(~np.isnan(values), axis=0)
+        sem = np.nanstd(values, axis=0, ddof=1) / np.sqrt(n_valid)
+        ax.bar(modes + (i - (len(PHASES) - 1) / 2) * width, np.nanmean(values, axis=0), width,
+               yerr=sem, capsize=3, label=f"{phase} (N={n_valid.max()})", color=phase_colors[phase], alpha=0.85)
+    top = max(np.nanmean(v, axis=0).max() for v in phase_profiles.values())
     for m in range(n_modes):
         ax.text(m + 1, top * 1.05, mc.stars(mode_p[m]), ha="center")
     ax.set_xticks(modes)
@@ -319,13 +329,13 @@ def _compare_modes(table, mode_cols, tag, stats_rows, ylabel, title, output_file
     friedman = []
     n = None
     for col in mode_cols:
-        wide, fp, pp = _paired_tests(table, col)
-        n = len(wide)
+        wide, fp, pp, pn = _paired_tests(table, col)
+        n = pn["friedman"]
         friedman.append(fp)
         for phase in PHASES:
             phase_values[phase].append(wide[phase].to_numpy())
         for (a, b), p in pp.items():
-            stats_rows.append({"measure": f"{tag}_{col}", "unit": "subject", "n": n,
+            stats_rows.append({"measure": f"{tag}_{col}", "unit": "subject", "n": pn[(a, b)],
                                "test": f"wilcoxon {a} vs {b} (holm within mode)", "p": p})
     adjusted = _holm(friedman)
     for col, raw, adj in zip(mode_cols, friedman, adjusted):
@@ -381,18 +391,18 @@ def main():
     stats_rows = []
 
     ########## A. intra-subject entropy ##########
-    wide, friedman_p, pair_p = _paired_tests(summary, "entropy")
-    if len(wide) < summary["subject"].nunique():
-        yprint(f">>> {summary['subject'].nunique() - len(wide)} sujetos sin las "
-               f"{len(PHASES)} fases, excluidos de los tests pareados")
-    stats_rows.append({"measure": "entropy", "unit": "subject", "n": len(wide),
+    wide, friedman_p, pair_p, pair_n = _paired_tests(summary, "entropy")
+    if pair_n["friedman"] < summary["subject"].nunique():
+        yprint(f">>> {summary['subject'].nunique() - pair_n['friedman']} sujetos sin las "
+               f"{len(PHASES)} fases: fuera del Friedman, incluidos en los pares que tienen")
+    stats_rows.append({"measure": "entropy", "unit": "subject", "n": pair_n["friedman"],
                        "test": "friedman", "p": friedman_p})
     for (a, b), p in pair_p.items():
-        stats_rows.append({"measure": "entropy", "unit": "subject", "n": len(wide),
+        stats_rows.append({"measure": "entropy", "unit": "subject", "n": pair_n[(a, b)],
                            "test": f"wilcoxon {a} vs {b} (holm)", "p": p})
     cprint(f">>> Entropía intra-sujeto: Friedman p={friedman_p:.3g}; " +
-           ", ".join(f"{a} vs {b} p={p:.3g}" for (a, b), p in pair_p.items()))
-    _plot_paired(wide, friedman_p, pair_p,
+           ", ".join(f"{a} vs {b} p={p:.3g} (N={pair_n[(a, b)]})" for (a, b), p in pair_p.items()))
+    _plot_paired(wide, friedman_p, pair_p, pair_n,
                  os.path.join(PLOT_PATH, "phase_entropy_paired.png"))
 
     ########## mode profiles (soft) and occupancy (hard), whole phase, unit = subject ##########

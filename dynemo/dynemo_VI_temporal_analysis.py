@@ -53,7 +53,7 @@ RANDOM_STATE = 42
 reject_gap_epochs = True  # drop epochs overlapping trimmed / bad-segment gaps
 
 # Statistics: 1-D temporal cluster permutation across subjects (per mode)
-run_permutations = True
+run_permutations = False
 pval_threshold = 0.05
 # dict -> TFCE; float -> two-tailed p for a fixed cluster-forming t threshold
 t_thresh = {"start": 0.0, "step": 0.2}

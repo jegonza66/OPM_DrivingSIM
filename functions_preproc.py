@@ -123,38 +123,13 @@ def remove_annotations(meg_data):
     print('Removing saccade and fixation annotations from MEG data')
 
     if hasattr(meg_data, 'annotations') and meg_data.annotations is not None:
-        # Get current annotations
-        onsets = meg_data.annotations.onset
-        durations = meg_data.annotations.duration
-        descriptions = meg_data.annotations.description
+        # Delete in place: rebuilding mne.Annotations without orig_time shifts every onset by first_time
+        remove_idx = [i for i, desc in enumerate(meg_data.annotations.description)
+                      if 'sac' in desc.lower() or 'fix' in desc.lower()]
 
-        # Find indices of annotations to keep (not saccade or fixation)
-        keep_indices = []
-        removed_count = 0
-
-        for i, desc in enumerate(descriptions):
-            desc_lower = desc.lower()
-            if 'sac' not in desc_lower and 'fix' not in desc_lower:
-                keep_indices.append(i)
-            else:
-                removed_count += 1
-
-        if removed_count > 0:
-            print(f'Removed {removed_count} saccade/fixation annotations')
-
-            # Create new annotations with only the kept ones
-            if keep_indices:
-                new_onsets = onsets[keep_indices]
-                new_durations = durations[keep_indices]
-                new_descriptions = descriptions[keep_indices]
-
-                new_annotations = mne.Annotations(onset=new_onsets,
-                                                duration=new_durations,
-                                                description=new_descriptions)
-                meg_data.set_annotations(new_annotations)
-            else:
-                # No annotations left, set to None
-                meg_data.set_annotations(None)
+        if remove_idx:
+            meg_data.annotations.delete(remove_idx)
+            print(f'Removed {len(remove_idx)} saccade/fixation annotations')
         else:
             print('No saccade/fixation annotations found to remove')
     else:
@@ -164,7 +139,8 @@ def remove_annotations(meg_data):
 
 
 def exp_end_crop(meg_data):
-    gas = meg_data.copy().pick('Gas').get_data()
+    # DA1 names the channel 'gas'
+    gas = meg_data.copy().pick('Gas' if 'Gas' in meg_data.ch_names else 'gas').get_data()
     brake = meg_data.copy().pick('Brake').get_data()
 
     gas_diff = np.diff(gas)
@@ -267,7 +243,7 @@ def saccades_classification(subject, saccades, meg_data):
     drive_idx = np.where(meg_data.annotations.description == 'drive')[0]
     if len(drive_idx) == 0:
         raise ValueError("No 'drive' annotation found for trial onset.")
-    trial_onset = meg_data.annotations.onset[drive_idx[0]]  # Not withdrawing meg first time because fixations onset from remodnav starts from 0
+    trial_onset = meg_data.annotations.onset[drive_idx[0]] - meg_data.first_time  # 0-based, like remodnav onsets
 
     # Prepare lists for new columns
     n_sacs = []
@@ -338,7 +314,7 @@ def saccades_classification(subject, saccades, meg_data):
     duration_list = saccades['duration'].values
     description_list = ['sac_' + str(val) for val in saccades['dir']]
     meg_data.annotations.description = np.concatenate((meg_data.annotations.description, np.array(description_list)))
-    meg_data.annotations.onset = np.concatenate((meg_data.annotations.onset - meg_data.first_time, np.array(onset_list)))  # Correct original annotations timeing only here
+    meg_data.annotations.onset = np.concatenate((meg_data.annotations.onset, np.array(onset_list)))
     meg_data.annotations.duration = np.concatenate((meg_data.annotations.duration, np.array(duration_list)))
 
     # Sort annotations by onset
@@ -358,7 +334,7 @@ def fixations_classification(df, saccades, meg_data, et_channels_meg, title):
     drive_idx = np.where(meg_data.annotations.description == 'drive')[0]
     if len(drive_idx) == 0:
         raise ValueError("No 'drive' annotation found for trial onset.")
-    trial_onset = meg_data.annotations.onset[drive_idx[0]]  # Not withdrawing meg first time because fixations onset from remodnav starts from 0
+    trial_onset = meg_data.annotations.onset[drive_idx[0]] - meg_data.first_time  # 0-based, like remodnav onsets
 
     times = meg_data.times
     sacc_thresh = 0.01  # 10 ms
@@ -441,27 +417,42 @@ def fixations_classification(df, saccades, meg_data, et_channels_meg, title):
     return df
 
 
+def add_pipeline_bad_segments(meg_data, subject_id, task):
+    """
+    Add the external pipeline's 'bad_segment_meg' annotations from its step-3.1 file, if it exists.
+    DA1 lost them after step 3.1 (only 11766 kept that file). The step-3.1 file shares first_samp with the ICA data.
+    """
+    bad_seg_file = os.path.join(paths.opm_path, f'sub-{subject_id}', f'sub-{subject_id}_{task}_3.1_bad_ch_bad_seg_meg.fif')
+    if not os.path.exists(bad_seg_file):
+        print(f'No pipeline bad segments file for subject {subject_id}')
+        return meg_data
+
+    src = mne.io.read_raw_fif(bad_seg_file, preload=False)
+    if src.first_samp != meg_data.first_samp:
+        raise ValueError(f'first_samp mismatch between {bad_seg_file} and MEG data')
+    annot = src.annotations
+    keep = (annot.description == 'bad_segment_meg') & (annot.onset - meg_data.first_time <= meg_data.times[-1])
+    # Append in place: rebuilding Annotations would shift onsets by first_time
+    meg_data.annotations.append(annot.onset[keep], annot.duration[keep], annot.description[keep])
+    print(f'Added {keep.sum()} pipeline bad segments for subject {subject_id}')
+
+    return meg_data
+
+
 def interpolate_bad_channels(subject_id, meg_data, exp_info):
 
     # Interpolate bad channels by orientation (X, Y, Z)
     bads = list(set(exp_info.bad_channels.get(subject_id, []) + meg_data.info.get('bads', [])))
     if bads:
         print(f'Interpolating bad channels for subject {subject_id}: {bads}')
-        ch_names = meg_data.info['ch_names']
-        bads_by_orient = {'X': [], 'Y': [], 'Z': []}
-        for ch in bads:
-            if ch.endswith('[X]'):
-                bads_by_orient['X'].append(ch)
-            elif ch.endswith('[Y]'):
-                bads_by_orient['Y'].append(ch)
-            elif ch.endswith('[Z]'):
-                bads_by_orient['Z'].append(ch)
+        mag_chs = [ch for ch, ch_type in zip(meg_data.ch_names, meg_data.get_channel_types()) if ch_type == 'mag']
 
         # Interpolate for each orientation separately
-        for orient, bad_list in bads_by_orient.items():
+        for orient in ['X', 'Y', 'Z']:
+            orient_chs = [ch for ch in mag_chs if ch.endswith((f' {orient}', f'[{orient}]'))]  # DA2 'FL6 A2 X', DA1 'PL3 X A1[X]'
+            bad_list = [ch for ch in orient_chs if ch in bads]
             if not bad_list:
                 continue
-            orient_chs = [ch for ch in ch_names if ch.endswith(f'[{orient}]')]
             # Create a Raw object with only this orientation
             raw_orient = meg_data.copy().pick_channels(orient_chs)
             raw_orient.info['bads'] = bad_list

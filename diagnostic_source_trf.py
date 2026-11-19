@@ -50,7 +50,7 @@ meg_params = {'chs_id': 'mag_z',
 
 surf_vol = 'parcellation'      # 'parcellation' | 'vol_parcellation'
 parc = 'aparc.a2009s'
-vol_parc_name = 'aal'          # only used for path tag if surf_vol == 'vol_parcellation'
+vol_parc_name = 'aal3'         # only used for path tag if surf_vol == 'vol_parcellation'
 pick_ori = None
 spacing = 'ico4'
 pos = 10
