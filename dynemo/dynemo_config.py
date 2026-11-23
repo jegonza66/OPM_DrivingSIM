@@ -39,6 +39,8 @@ n_pca = 80            # number of TDE-PCA components (n_channels for the model)
 n_embeddings = 15     # number of time-delay embeddings
 sequence_length = 100  # model sequence length
 ch_picks = 'mag'      # project chs_id fed to the LCMV (see functions_general.pick_chs)
+seed = 42             # random seed for training (Python, NumPy, TensorFlow), for reproducibility
+op_determinism = True  # deterministic TensorFlow ops: same seed -> identical model (slower training)
 
 # --- Optional untracked local override -----------------------------------
 # If a sibling ``dynemo_config_local.py`` exists, any of the names it
@@ -49,11 +51,11 @@ except ImportError:
     _local = None
 
 if _local is not None:
-    for _name in ("n_modes", "n_pca", "n_embeddings", "sequence_length", "ch_picks"):
+    for _name in ("n_modes", "n_pca", "n_embeddings", "sequence_length", "ch_picks", "seed", "op_determinism"):
         if hasattr(_local, _name):
             globals()[_name] = getattr(_local, _name)
     print(f"[dynemo_config] Using local override: "
           f"n_modes={n_modes}, n_pca={n_pca}, "
           f"n_embeddings={n_embeddings}, sequence_length={sequence_length}, "
-          f"ch_picks={ch_picks}")
+          f"ch_picks={ch_picks}, seed={seed}, op_determinism={op_determinism}")
 

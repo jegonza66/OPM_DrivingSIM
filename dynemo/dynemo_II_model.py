@@ -23,10 +23,13 @@ import matplotlib.pyplot as plt
 import mne
 import dynemo__mixing_coefficients_utils as mc
 from training_utils import RestoreBestWeightsAfter, TrainingCheckpoint
+from osl_dynamics.utils.misc import set_random_seed
 
 
 # Setup
-from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks
+from dynemo_config import n_modes, n_pca, n_embeddings, sequence_length, ch_picks, seed, op_determinism
+# Seed Python / NumPy / TensorFlow before any random step (initialisation, shuffling, sampling)
+set_random_seed(seed, op_determinism=op_determinism)
 exp_info = setup.exp_info()
 
 # Paths:
